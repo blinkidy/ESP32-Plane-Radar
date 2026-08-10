@@ -46,10 +46,17 @@ constexpr float clamp01(float value) {
   return value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
 }
 
-/** Ease in/out so a new fix arrives without a visible velocity step. */
+/**
+ * Ease in/out so a new fix arrives without a visible velocity step.
+ *
+ * Split across two single-expression functions rather than naming `t` in a
+ * local: the firmware compiles as gnu++11 (see platformio.ini), where a
+ * constexpr body must be exactly one return statement.
+ */
+constexpr float smoothstepUnit(float t) { return t * t * (3.0f - 2.0f * t); }
+
 constexpr float smoothstep(float value) {
-  const float t = clamp01(value);
-  return t * t * (3.0f - 2.0f * t);
+  return smoothstepUnit(clamp01(value));
 }
 
 constexpr bool hasStableId(const Aircraft& aircraft) {

@@ -25,10 +25,16 @@ constexpr bool tagRectsOverlap(TagRect first, TagRect second) {
          first.top < second.bottom && first.bottom > second.top;
 }
 
+// Single-expression bodies throughout: the firmware compiles as gnu++11 (see
+// platformio.ini), where a constexpr body must be exactly one return statement.
+constexpr int absInt(int v) { return v < 0 ? -v : v; }
+
 constexpr int largerMagnitude(int a, int b) {
-  const int abs_a = a < 0 ? -a : a;
-  const int abs_b = b < 0 ? -b : b;
-  return abs_a > abs_b ? abs_a : abs_b;
+  return absInt(a) > absInt(b) ? absInt(a) : absInt(b);
+}
+
+constexpr bool withinRadius(int dx, int dy, int radius) {
+  return dx * dx + dy * dy <= radius * radius;
 }
 
 /**
@@ -42,9 +48,9 @@ constexpr int largerMagnitude(int a, int b) {
  * right/bottom are exclusive, so the last drawn pixel is one inside each.
  */
 constexpr bool tagRectInsideDisc(TagRect rect, int cx, int cy, int radius) {
-  const int dx = largerMagnitude(rect.left - cx, rect.right - 1 - cx);
-  const int dy = largerMagnitude(rect.top - cy, rect.bottom - 1 - cy);
-  return dx * dx + dy * dy <= radius * radius;
+  return withinRadius(largerMagnitude(rect.left - cx, rect.right - 1 - cx),
+                      largerMagnitude(rect.top - cy, rect.bottom - 1 - cy),
+                      radius);
 }
 
 }  // namespace ui::radar
