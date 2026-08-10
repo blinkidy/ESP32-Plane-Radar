@@ -11,7 +11,10 @@
 #include "hardware/display.h"
 #include "hardware/display_font.h"
 
-namespace fonts = lgfx::v1::fonts;
+// Not `fonts`: LovyanGFX >=1.2.2x declares a global `namespace fonts` (and a
+// `using namespace fonts;`) in lgfx_fonts.hpp, which a same-named alias here
+// would redeclare. platformio.ini floats on ^1.2.7, so this must work on both.
+namespace radar_fonts = lgfx::v1::fonts;
 
 namespace {
 
@@ -38,13 +41,13 @@ float s_spinner_angle_deg = -90.0f;
 SpinnerDot s_spinner_dots[kSpinnerDotCount];
 bool s_connecting_text_drawn = false;
 
-constexpr auto& kGfxTitle = fonts::FreeSans18pt7b;
-constexpr auto& kGfxBody = fonts::FreeSans12pt7b;
-constexpr auto& kGfxDetail = fonts::Font2;
-constexpr auto& kPortalGfxTitle = fonts::FreeSansBold18pt7b;
-constexpr auto& kPortalGfxBody = fonts::FreeSansBold12pt7b;
-constexpr auto& kPortalGfxEmphasis = fonts::FreeSansBold18pt7b;
-constexpr auto& kConnectingGfxDetail = fonts::FreeSans9pt7b;
+constexpr auto& kGfxTitle = radar_fonts::FreeSans18pt7b;
+constexpr auto& kGfxBody = radar_fonts::FreeSans12pt7b;
+constexpr auto& kGfxDetail = radar_fonts::Font2;
+constexpr auto& kPortalGfxTitle = radar_fonts::FreeSansBold18pt7b;
+constexpr auto& kPortalGfxBody = radar_fonts::FreeSansBold12pt7b;
+constexpr auto& kPortalGfxEmphasis = radar_fonts::FreeSansBold18pt7b;
+constexpr auto& kConnectingGfxDetail = radar_fonts::FreeSans9pt7b;
 
 struct TextLine {
   const char* text;
