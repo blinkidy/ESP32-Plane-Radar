@@ -150,13 +150,29 @@ void testPolicies() {
   static_assert(!tagRectInside({0, 0, 241, 10}, 240, 240));
   static_assert(!tagRectInside({10, 0, 10, 10}, 240, 240));  // zero width
 
+  // Round panel: the bounding square is not the visible area. A tag out along
+  // a diagonal can pass tagRectInside and still run off the bezel.
+  constexpr int kCx = 120;
+  constexpr int kCy = 120;
+  constexpr int kR = 118;
+  static_assert(tagRectInsideDisc({100, 100, 140, 140}, kCx, kCy, kR));
+  // A 2-line tag placed outward from traffic on the 040 bearing at max range:
+  // wholly inside the square, but its far corner is r=133, off the glass.
+  static_assert(tagRectInside({193, 33, 221, 63}, 240, 240));
+  static_assert(!tagRectInsideDisc({193, 33, 221, 63}, kCx, kCy, kR));
+  // Hugging the rim near an axis is fine — that is where N/S/E/W live.
+  static_assert(tagRectInsideDisc({105, 6, 135, 36}, kCx, kCy, kR));
+  // Exclusive right/bottom: a rect ending exactly on the rim still fits.
+  static_assert(tagRectInsideDisc({kCx, kCy, kCx + kR + 1, kCy + 1}, kCx, kCy, kR));
+  static_assert(!tagRectInsideDisc({kCx, kCy, kCx + kR + 2, kCy + 1}, kCx, kCy, kR));
+
   using services::adsb::motion::clamp01;
   using services::adsb::motion::smoothstep;
   static_assert(smoothstep(0.0f) == 0.0f);
   static_assert(smoothstep(1.0f) == 1.0f);
   static_assert(clamp01(2.0f) == 1.0f);
   static_assert(clamp01(-1.0f) == 0.0f);
-  g_checks += 16;
+  g_checks += 22;
 }
 
 }  // namespace

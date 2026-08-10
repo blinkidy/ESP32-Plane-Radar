@@ -8,6 +8,7 @@
 #include "config.h"
 #include "hardware/display.h"
 #include "services/adsb_client.h"
+#include "services/net_session.h"
 #include "services/radar_location.h"
 #include "services/route_fetcher.h"
 #include "services/wifi_setup.h"
@@ -109,6 +110,7 @@ void setup() {
     statusScreenPortal();
   }
   services::location::init();
+  services::net::sessionInit();
   ui::radar::rangeInit();
   services::adsb::setPollFn(pollNetwork);
   // Task idles until WiFi is up, so it is safe to start before connecting.
@@ -146,7 +148,11 @@ void loop() {
     g_wifi_down_since = 0;
     if (!g_radar_visible) {
       showRadarIfConnected();
-    } else if (millis() - g_last_adsb_fetch_ms >= config::kAdsbFetchIntervalMs) {
+    } else if (millis() - g_last_adsb_fetch_ms >= config::kAdsbFetchIntervalMs &&
+               !services::net::sessionBusy()) {
+      // Skipping while a route lookup holds the radio leaves the fetch slot
+      // unconsumed, so the next iteration claims it as soon as that finishes.
+      // fetchUpdate() re-checks under the lock; this is only scheduling.
       g_last_adsb_fetch_ms = millis();
       fetchAndDrawAircraft();
     } else {

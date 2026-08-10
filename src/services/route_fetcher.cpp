@@ -12,7 +12,7 @@
 
 #include <cstring>
 
-#include "services/adsb_client.h"
+#include "services/net_session.h"
 #include "services/route_parse.h"
 #include "ui/radar_range.h"
 
@@ -151,12 +151,18 @@ void fetchTask(void*) {
     if (xQueueReceive(s_queue, callsign, portMAX_DELAY) != pdTRUE) {
       continue;
     }
-    // One TLS session at a time: the ADS-B poll and this task would otherwise
-    // hold two mbedTLS contexts plus the 115 KB frame sprite.
-    while (WiFi.status() != WL_CONNECTED || services::adsb::fetchInFlight()) {
+    while (WiFi.status() != WL_CONNECTED) {
       vTaskDelay(pdMS_TO_TICKS(50));
     }
-    fetchOne(callsign);
+    // One TLS session at a time. Held across the whole request, so an ADS-B
+    // poll starting mid-lookup blocks rather than opening a second context.
+    {
+      net::acquireSession();
+      const net::SessionLease lease;
+      fetchOne(callsign);
+    }
+    // Spacing is deliberately outside the lock: the ADS-B poll gets first
+    // claim on the radio during the gap rather than queueing behind us.
     vTaskDelay(pdMS_TO_TICKS(kMinRequestSpacingMs));
   }
 }

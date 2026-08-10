@@ -572,8 +572,11 @@ TagPlacement findTagPlacement(const TagLine* lines, size_t line_count, int x,
       {inward_x, inward_y, inward_x + width, inward_y + height},
   };
 
+  constexpr int kVisibleRadius = radar::kCenterX - radar::kTagDiscMarginPx;
   for (const radar::TagRect& candidate : candidates) {
     if (!radar::tagRectInside(candidate, radar::kSize, radar::kSize) ||
+        !radar::tagRectInsideDisc(candidate, radar::kCenterX, radar::kCenterY,
+                                  kVisibleRadius) ||
         tagConflictsWithPlaced(candidate, placed, placed_count) ||
         tagOverlapsAircraftSymbol(candidate, items, item_count)) {
       continue;

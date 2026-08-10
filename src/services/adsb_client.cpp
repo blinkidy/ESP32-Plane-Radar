@@ -9,6 +9,7 @@
 
 #include "config.h"
 #include "services/aircraft_motion.h"
+#include "services/net_session.h"
 #include "services/route_fetcher.h"
 
 namespace services::adsb {
@@ -30,8 +31,6 @@ Aircraft s_incoming[kMaxAircraft];
 Aircraft s_display[kMaxAircraft];
 size_t s_aircraft_count = 0;
 PollFn s_poll_fn = nullptr;
-/** Read from the route task, written here. */
-volatile bool s_fetch_in_flight = false;
 
 int findTrackById(const char* id) {
   if (id == nullptr || id[0] == '\0') {
@@ -183,15 +182,18 @@ float pickTrackHeading(const JsonObject& plane) {
   return 0.0f;
 }
 
+/**
+ * Ground speed only — never TAS/IAS.
+ *
+ * Airspeed can differ from ground speed by 100+ kt in a jet stream, and this
+ * value now does three jobs that all mean "over the ground": the speed vector,
+ * the "kt" tag, and dead-reckoned motion between polls. An aircraft reporting
+ * no gs is left at 0, which reads as "unknown" everywhere rather than as a
+ * confidently wrong number.
+ */
 float pickGroundSpeed(const JsonObject& plane) {
   float v = 0.0f;
   if (readJsonFloat(plane, "gs", &v)) {
-    return v;
-  }
-  if (readJsonFloat(plane, "tas", &v)) {
-    return v;
-  }
-  if (readJsonFloat(plane, "ias", &v)) {
     return v;
   }
   return 0.0f;
@@ -272,8 +274,6 @@ void fillTagFields(Aircraft* ac, const JsonObject& plane) {
 
 void setPollFn(PollFn fn) { s_poll_fn = fn; }
 
-bool fetchInFlight() { return s_fetch_in_flight; }
-
 size_t aircraftCount() { return s_aircraft_count; }
 
 const Aircraft* aircraftList(unsigned long now_ms, size_t* count) {
@@ -291,12 +291,13 @@ const Aircraft* aircraftList(unsigned long now_ms, size_t* count) {
 }
 
 bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
-  // Held for the whole call so the route task keeps off the air while our TLS
-  // session is open — two mbedTLS contexts plus the frame sprite won't fit.
-  s_fetch_in_flight = true;
-  struct FetchGuard {
-    ~FetchGuard() { s_fetch_in_flight = false; }
-  } guard;
+  // Exclusive for the whole call, so the route task cannot open a second TLS
+  // session alongside ours — and cannot have one open when we start. Never
+  // waits: this runs on the task that also drives the display.
+  if (!net::trySession()) {
+    return false;
+  }
+  const net::SessionLease lease;
 
   const float dist_nm = kmToNauticalMiles(fetch_radius_km);
 

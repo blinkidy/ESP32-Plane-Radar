@@ -87,9 +87,13 @@ consequences:
   `s_tracks` only after all polling is done, so a redraw never sees a
   half-updated aircraft list. Keep that ordering.
 
-**One TLS session at a time.** The route fetcher runs on its own FreeRTOS task
-and waits on `services::adsb::fetchInFlight()`. Two concurrent mbedTLS contexts
-plus the frame sprite will not fit in RAM.
+**One TLS session at a time.** Two concurrent mbedTLS contexts plus the frame
+sprite will not fit in RAM, so both HTTP clients go through the mutex in
+`services/net_session.h`. The route task (background) waits with
+`acquireSession()`; the ADS-B poll uses `trySession()` and gives up, because it
+runs on the task that also redraws — blocking there would freeze the sweep.
+A skipped poll is retried on the next loop iteration rather than waiting out the
+full 3 s interval. Any new network client must take the same lock.
 
 **Longitude is not 111 km/deg.** Use `ui::radar::` projection helpers
 (`offsetKmFromCenter`, `latLonToScreen`, `distSqKmFromCenter`) rather than
