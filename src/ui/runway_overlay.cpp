@@ -13,7 +13,10 @@
 #include "ui/radar_range.h"
 #include "ui/radar_theme.h"
 
-namespace fonts = lgfx::v1::fonts;
+// Not `fonts`: LovyanGFX >=1.2.2x declares a global `namespace fonts` (and a
+// `using namespace fonts;`) in lgfx_fonts.hpp, which a same-named alias here
+// would redeclare. platformio.ini floats on ^1.2.7, so this must work on both.
+namespace radar_fonts = lgfx::v1::fonts;
 
 namespace ui::runway {
 namespace {
@@ -38,8 +41,8 @@ bool s_label_style_ready = false;
 bool s_label_use_vlw = false;
 float s_icao_vlw_size = 0.38f;
 float s_ident_vlw_size = 0.26f;
-const lgfx::GFXfont* s_icao_gfx = &fonts::FreeSansBold12pt7b;
-const lgfx::GFXfont* s_ident_gfx = &fonts::FreeSansBold9pt7b;
+const lgfx::GFXfont* s_icao_gfx = &radar_fonts::FreeSansBold12pt7b;
+const lgfx::GFXfont* s_ident_gfx = &radar_fonts::FreeSansBold9pt7b;
 
 int measureVlwHeight(lgfx::LGFXBase& gfx, float size) {
   gfx.setTextSize(size);
@@ -71,8 +74,8 @@ void initLabelStyle(lgfx::LGFXBase& gfx) {
     s_ident_vlw_size =
         findVlwSizeForHeight(gfx, radar::kRunwayIdentLabelHeightPx);
   } else {
-    s_icao_gfx = &fonts::FreeSansBold12pt7b;
-    s_ident_gfx = &fonts::FreeSansBold9pt7b;
+    s_icao_gfx = &radar_fonts::FreeSansBold12pt7b;
+    s_ident_gfx = &radar_fonts::FreeSansBold9pt7b;
     s_label_use_vlw = false;
   }
   s_label_style_ready = true;
