@@ -11,9 +11,9 @@
 #include <freertos/task.h>
 
 #include <cstring>
-#include <initializer_list>
 
 #include "services/adsb_client.h"
+#include "services/route_parse.h"
 #include "ui/radar_range.h"
 
 namespace services::route {
@@ -103,44 +103,6 @@ void storeResult(const char* callsign, const char* route) {
   xSemaphoreGive(s_cache_mutex);
 }
 
-/** Prefer the IATA code; ICAO is the fallback for fields that lack one. */
-const char* airportCode(JsonObjectConst obj) {
-  if (obj.isNull()) {
-    return nullptr;
-  }
-  for (const char* key : {"iata_code", "icao_code"}) {
-    if (obj[key].is<const char*>()) {
-      const char* value = obj[key].as<const char*>();
-      if (value != nullptr && value[0] != '\0') {
-        return value;
-      }
-    }
-  }
-  return nullptr;
-}
-
-/** Parses the adsbdb reply into "ORIG-DEST"; empty means "no route known". */
-void parseRoute(const String& payload, char* out, size_t out_len) {
-  out[0] = '\0';
-
-  JsonDocument doc;
-  const DeserializationError err = deserializeJson(doc, payload);
-  if (err) {
-    Serial.printf("route: JSON parse error: %s\n", err.c_str());
-    return;
-  }
-
-  JsonObjectConst flightroute =
-      doc["response"]["flightroute"].as<JsonObjectConst>();
-  const char* origin = airportCode(flightroute["origin"].as<JsonObjectConst>());
-  const char* destination =
-      airportCode(flightroute["destination"].as<JsonObjectConst>());
-  if (origin == nullptr || destination == nullptr) {
-    return;
-  }
-  snprintf(out, out_len, "%s-%s", origin, destination);
-}
-
 void fetchOne(const char* callsign) {
   String url = kApiBase;
   url += callsign;
@@ -159,7 +121,7 @@ void fetchOne(const char* callsign) {
   const int code = http.GET();
   if (code == HTTP_CODE_OK) {
     char route[kRouteLen];
-    parseRoute(http.getString(), route, sizeof(route));
+    parseRouteJson(http.getString().c_str(), route, sizeof(route));
     storeResult(callsign, route);
     Serial.printf("route: %s -> %s\n", callsign,
                   route[0] != '\0' ? route : "(none)");
