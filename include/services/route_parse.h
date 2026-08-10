@@ -9,6 +9,7 @@
 #include <ArduinoJson.h>
 
 #include <cstdio>
+#include <initializer_list>
 
 namespace services::route {
 

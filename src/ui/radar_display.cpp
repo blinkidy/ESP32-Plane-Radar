@@ -18,7 +18,10 @@
 #include "ui/radar_theme.h"
 #include "ui/runway_overlay.h"
 
-namespace fonts = lgfx::v1::fonts;
+// Not `fonts`: LovyanGFX >=1.2.2x declares a global `namespace fonts` (and a
+// `using namespace fonts;`) in lgfx_fonts.hpp, which a same-named alias here
+// would redeclare. platformio.ini floats on ^1.2.7, so this must work on both.
+namespace radar_fonts = lgfx::v1::fonts;
 
 namespace ui {
 namespace radar {
@@ -46,9 +49,9 @@ bool s_scale_use_vlw = false;
 float s_cardinal_vlw_size = 0.56f;
 float s_scale_vlw_size = 0.50f;
 float s_tag_vlw_size = 0.56f;
-const lgfx::GFXfont* s_cardinal_gfx = &fonts::FreeSansBold12pt7b;
-const lgfx::GFXfont* s_scale_gfx = &fonts::FreeSansBold9pt7b;
-const lgfx::GFXfont* s_tag_gfx = &fonts::FreeSansBold12pt7b;
+const lgfx::GFXfont* s_cardinal_gfx = &radar_fonts::FreeSansBold12pt7b;
+const lgfx::GFXfont* s_scale_gfx = &radar_fonts::FreeSansBold9pt7b;
+const lgfx::GFXfont* s_tag_gfx = &radar_fonts::FreeSansBold12pt7b;
 
 bool s_tag_label_metrics_ready = false;
 bool s_tag_use_vlw = false;
@@ -134,16 +137,16 @@ void initLabelMetrics() {
     s_scale_use_vlw = true;
     s_scale_vlw_size = findVlwSizeForHeight(scale_target);
   } else {
-    const lgfx::GFXfont* cardinal_candidates[] = {&fonts::FreeSansBold12pt7b,
-                                                  &fonts::FreeSansBold9pt7b};
+    const lgfx::GFXfont* cardinal_candidates[] = {&radar_fonts::FreeSansBold12pt7b,
+                                                  &radar_fonts::FreeSansBold9pt7b};
     s_cardinal_gfx =
         pickGfxFontClosest(cardinal_target, cardinal_candidates, 2);
     s_cardinal_use_vlw = false;
 
     const int cardinal_h = measureGfxHeight(*s_cardinal_gfx);
     const int scale_target = cardinal_h - radar::kScaleBelowCardinalPx;
-    const lgfx::GFXfont* scale_candidates[] = {&fonts::FreeSansBold9pt7b,
-                                               &fonts::FreeSansBold12pt7b};
+    const lgfx::GFXfont* scale_candidates[] = {&radar_fonts::FreeSansBold9pt7b,
+                                               &radar_fonts::FreeSansBold12pt7b};
     s_scale_gfx = pickGfxFontClosest(scale_target, scale_candidates, 2);
     s_scale_use_vlw = false;
   }
@@ -176,8 +179,8 @@ void initTagLabelMetrics() {
     s_tag_use_vlw = true;
     s_tag_vlw_size = findVlwSizeForHeight(target);
   } else {
-    const lgfx::GFXfont* tag_candidates[] = {&fonts::FreeSansBold12pt7b,
-                                               &fonts::FreeSansBold9pt7b};
+    const lgfx::GFXfont* tag_candidates[] = {&radar_fonts::FreeSansBold12pt7b,
+                                               &radar_fonts::FreeSansBold9pt7b};
     s_tag_gfx = pickGfxFontClosest(target, tag_candidates, 2);
     s_tag_use_vlw = false;
   }
@@ -494,10 +497,13 @@ struct BeyondDotDrawItem {
   int dist_sq = 0;
 };
 
+// No default member initialisers: they would make this a non-aggregate under
+// C++11 (relaxed only in C++14), and it is built with `{rect, detail, true}`.
+// Every declaration must therefore say `= {}` to get the zeroed "invalid" state.
 struct TagPlacement {
-  radar::TagRect rect = {0, 0, 0, 0};
-  TagDetail detail = TagDetail::kFull;
-  bool valid = false;
+  radar::TagRect rect;
+  TagDetail detail;
+  bool valid;
 };
 
 bool tagConflictsWithPlaced(radar::TagRect rect, const radar::TagRect* placed,
@@ -682,7 +688,7 @@ void drawAircraft(unsigned long now_ms) {
         TagDetail::kFull, TagDetail::kCompact, TagDetail::kMinimal};
     TagLine lines[kMaxTagLines];
     size_t line_count = 0;
-    TagPlacement placement;
+    TagPlacement placement = {};
     for (const TagDetail detail : kDetailLadder) {
       line_count = buildTagLines(plane, detail, lines);
       placement = findTagPlacement(lines, line_count, item.x, item.y, detail,

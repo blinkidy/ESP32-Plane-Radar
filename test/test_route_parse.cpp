@@ -1,8 +1,13 @@
 /*
  * Host tests for the pure logic headers. Not part of the firmware build.
  *
- *   g++ -std=gnu++17 -I include -I <ArduinoJson>/src \
+ *   g++ -std=gnu++11 -I include -I <ArduinoJson>/src \
  *       -o /tmp/t test/test_route_parse.cpp && /tmp/t
+ *
+ * Build as gnu++11, not gnu++17: platformio.ini asks for gnu++17 but the
+ * Arduino ESP32 framework's own -std=gnu++11 wins on the command line, so that
+ * is what the firmware really compiles as. Testing at gnu++17 hid a constexpr
+ * error that only the device build caught.
  */
 
 #include <cassert>

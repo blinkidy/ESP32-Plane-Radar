@@ -44,8 +44,11 @@ sweep/animation policy, tag-rect geometry, and adsbdb route parsing. They are
 
 ```bash
 git clone --depth 1 --branch v7.4.2 https://github.com/bblanchon/ArduinoJson.git /tmp/aj
-g++ -std=gnu++17 -Wall -Wextra -I include -I /tmp/aj/src -o /tmp/t test/test_route_parse.cpp && /tmp/t
+g++ -std=gnu++11 -Wall -Wextra -I include -I /tmp/aj/src -o /tmp/t test/test_route_parse.cpp && /tmp/t
 ```
+
+**Build these as `gnu++11`, not `gnu++17`** — see the standard-version trap below.
+Testing at gnu++17 once hid a constexpr error that only the device build caught.
 
 Logic worth testing belongs in a header that depends only on the standard
 library (or ArduinoJson), so it can be reached from here — that is why
@@ -106,6 +109,22 @@ large airports, plus medium airports with a runway ≥ 1200 m). Change the scrip
 and regenerate; never edit the output. The runway table is grouped by
 `airport_idx` and sorted longest-first, and `runway_overlay.cpp` relies on both
 to skip whole airports with one range test.
+
+**The project really compiles as gnu++11, whatever platformio.ini says.**
+`build_flags` asks for `-std=gnu++17`, but the Arduino ESP32 framework appends
+its own `-std=gnu++11` later on the command line and the last `-std` wins. The
+flag has been inert since before this fork. Consequences:
+
+- A `constexpr` function body must be **exactly one return statement**. Split
+  helpers out rather than naming locals (see `smoothstep`/`smoothstepUnit`).
+- C++14/17 library and language features are unavailable. Some C++17 syntax
+  compiles anyway as a GNU extension — nested namespace definitions
+  (`namespace services::adsb {`) are used throughout and only survive because
+  GCC downgrades that to a pedantic warning. Do not read their presence as
+  evidence that C++17 is on.
+- Making gnu++17 real needs `build_unflags = -std=gnu++11` in platformio.ini.
+  That re-standardises LovyanGFX and every other library too, so treat it as its
+  own change with a CI run to back it, not a drive-by.
 
 **Layout and colour constants live in `ui/radar_theme.h`**, not inline at the
 call site.
