@@ -8,6 +8,8 @@
 #include <cstring>
 
 #include "config.h"
+#include "services/aircraft_motion.h"
+#include "services/route_fetcher.h"
 
 namespace services::adsb {
 
@@ -18,9 +20,61 @@ constexpr float kKmPerNm = 1.852f;
 constexpr int kConnectAttemptMs = 200;
 constexpr unsigned long kRequestTimeoutMs = 10000;
 
-Aircraft s_aircraft[kMaxAircraft];
+using motion::AircraftTrack;
+
+/** Committed tracks (position + last fix), read by the renderer. */
+AircraftTrack s_tracks[kMaxAircraft];
+/** Parse scratch: only copied into s_tracks once a fetch fully succeeds. */
+Aircraft s_incoming[kMaxAircraft];
+/** Rebuilt per aircraftList() call with dead-reckoned positions. */
+Aircraft s_display[kMaxAircraft];
 size_t s_aircraft_count = 0;
 PollFn s_poll_fn = nullptr;
+/** Read from the route task, written here. */
+volatile bool s_fetch_in_flight = false;
+
+int findTrackById(const char* id) {
+  if (id == nullptr || id[0] == '\0') {
+    return -1;
+  }
+  for (size_t i = 0; i < s_aircraft_count; ++i) {
+    if (strcmp(s_tracks[i].aircraft.id, id) == 0) {
+      return static_cast<int>(i);
+    }
+  }
+  return -1;
+}
+
+/**
+ * Swap in a new set of fixes.
+ *
+ * Runs on the main task between poll callbacks, so the renderer — which is
+ * driven from those same callbacks — never observes a half-updated list.
+ *
+ * Resolved in two passes: an aircraft's new blend origin is read from the old
+ * track table, and incoming order need not match it, so writing in place during
+ * the first pass would let an earlier write clobber a later read.
+ */
+motion::Position s_blend_from[kMaxAircraft];  // pass-one scratch
+
+void replaceTracks(const Aircraft* incoming, size_t count,
+                   unsigned long now_ms) {
+  for (size_t i = 0; i < count; ++i) {
+    const int previous = motion::hasStableId(incoming[i])
+                             ? findTrackById(incoming[i].id)
+                             : -1;
+    s_blend_from[i] =
+        previous >= 0
+            ? motion::displayPosition(s_tracks[previous], now_ms)
+            : motion::Position{incoming[i].lat, incoming[i].lon};
+  }
+  for (size_t i = 0; i < count; ++i) {
+    s_tracks[i].aircraft = incoming[i];
+    s_tracks[i].blend_from = s_blend_from[i];
+    s_tracks[i].updated_ms = now_ms;
+  }
+  s_aircraft_count = count;
+}
 
 void pollNetwork() {
   if (s_poll_fn != nullptr) {
@@ -187,25 +241,63 @@ void formatAltitudeTag(const JsonObject& plane, char* out, size_t out_len) {
   }
 }
 
+/** Ground speed in knots — the unit every other aviation readout uses. */
+void formatSpeedTag(const JsonObject& plane, char* out, size_t out_len) {
+  out[0] = '\0';
+  if (out_len == 0) {
+    return;
+  }
+  const float gs = pickGroundSpeed(plane);
+  if (gs > 0.0f) {
+    snprintf(out, out_len, "%d kt", static_cast<int>(lroundf(gs)));
+  }
+}
+
 void fillTagFields(Aircraft* ac, const JsonObject& plane) {
+  copyJsonStringTrimmed(plane, "hex", ac->id, sizeof(ac->id));
   copyJsonStringTrimmed(plane, "flight", ac->callsign, sizeof(ac->callsign));
   if (ac->callsign[0] == '\0') {
-    copyJsonStringTrimmed(plane, "hex", ac->callsign, sizeof(ac->callsign));
+    strncpy(ac->callsign, ac->id, sizeof(ac->callsign) - 1);
+    ac->callsign[sizeof(ac->callsign) - 1] = '\0';
   }
 
   copyJsonStringTrimmed(plane, "t", ac->type, sizeof(ac->type));
   formatAltitudeTag(plane, ac->alt, sizeof(ac->alt));
+  formatSpeedTag(plane, ac->speed, sizeof(ac->speed));
+  // Misses on the first sighting and fills in on a later poll.
+  services::route::getRoute(ac->callsign, ac->route, sizeof(ac->route));
 }
 
 }  // namespace
 
 void setPollFn(PollFn fn) { s_poll_fn = fn; }
 
+bool fetchInFlight() { return s_fetch_in_flight; }
+
 size_t aircraftCount() { return s_aircraft_count; }
 
-const Aircraft* aircraftList() { return s_aircraft; }
+const Aircraft* aircraftList(unsigned long now_ms, size_t* count) {
+  for (size_t i = 0; i < s_aircraft_count; ++i) {
+    s_display[i] = s_tracks[i].aircraft;
+    const motion::Position position =
+        motion::displayPosition(s_tracks[i], now_ms);
+    s_display[i].lat = position.lat;
+    s_display[i].lon = position.lon;
+  }
+  if (count != nullptr) {
+    *count = s_aircraft_count;
+  }
+  return s_display;
+}
 
 bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
+  // Held for the whole call so the route task keeps off the air while our TLS
+  // session is open — two mbedTLS contexts plus the frame sprite won't fit.
+  s_fetch_in_flight = true;
+  struct FetchGuard {
+    ~FetchGuard() { s_fetch_in_flight = false; }
+  } guard;
+
   const float dist_nm = kmToNauticalMiles(fetch_radius_km);
 
   String url = kApiBase;
@@ -249,7 +341,7 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
 
   JsonArray ac = doc["ac"].as<JsonArray>();
   if (ac.isNull()) {
-    s_aircraft_count = 0;
+    replaceTracks(nullptr, 0, millis());
     return true;
   }
 
@@ -265,16 +357,16 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
       continue;
     }
 
-    s_aircraft[n].lat = plane["lat"].as<float>();
-    s_aircraft[n].lon = plane["lon"].as<float>();
-    s_aircraft[n].nose_deg = pickNoseHeading(plane);
-    s_aircraft[n].track_deg = pickTrackHeading(plane);
-    s_aircraft[n].gs_knots = pickGroundSpeed(plane);
-    fillTagFields(&s_aircraft[n], plane);
+    s_incoming[n].lat = plane["lat"].as<float>();
+    s_incoming[n].lon = plane["lon"].as<float>();
+    s_incoming[n].nose_deg = pickNoseHeading(plane);
+    s_incoming[n].track_deg = pickTrackHeading(plane);
+    s_incoming[n].gs_knots = pickGroundSpeed(plane);
+    fillTagFields(&s_incoming[n], plane);
     ++n;
   }
 
-  s_aircraft_count = n;
+  replaceTracks(s_incoming, n, millis());
   Serial.printf("adsb: %u aircraft\n", static_cast<unsigned>(n));
   return true;
 }
