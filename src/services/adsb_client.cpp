@@ -19,6 +19,14 @@ constexpr int kConnectAttemptMs = 200;
 constexpr unsigned long kRequestTimeoutMs = 10000;
 
 Aircraft s_aircraft[kMaxAircraft];
+struct PreviousTrack {
+  char id[8];
+  float lat;
+  float lon;
+  TrailPoint trail[kTrailPointCount];
+  uint8_t trail_count;
+};
+PreviousTrack s_previous[kMaxAircraft];
 size_t s_aircraft_count = 0;
 PollFn s_poll_fn = nullptr;
 
@@ -214,6 +222,7 @@ void formatGroundSpeedTag(const JsonObject& plane, char* out, size_t out_len) {
 }
 
 void fillTagFields(Aircraft* ac, const JsonObject& plane) {
+  copyJsonStringTrimmed(plane, "hex", ac->id, sizeof(ac->id));
   copyJsonStringTrimmed(plane, "flight", ac->callsign, sizeof(ac->callsign));
   if (ac->callsign[0] == '\0') {
     copyJsonStringTrimmed(plane, "hex", ac->callsign, sizeof(ac->callsign));
@@ -222,6 +231,42 @@ void fillTagFields(Aircraft* ac, const JsonObject& plane) {
   copyJsonStringTrimmed(plane, "t", ac->type, sizeof(ac->type));
   formatAltitudeTag(plane, ac->alt, sizeof(ac->alt));
   formatGroundSpeedTag(plane, ac->speed, sizeof(ac->speed));
+}
+
+const PreviousTrack* findPreviousAircraft(const char* id,
+                                          size_t previous_count) {
+  if (id[0] == '\0') {
+    return nullptr;
+  }
+  for (size_t i = 0; i < previous_count; ++i) {
+    if (strcmp(s_previous[i].id, id) == 0) {
+      return &s_previous[i];
+    }
+  }
+  return nullptr;
+}
+
+void carryHistory(Aircraft* aircraft, const PreviousTrack* previous) {
+  aircraft->trail_count = 0;
+  if (previous == nullptr) {
+    return;
+  }
+  aircraft->trail_count = previous->trail_count;
+  memcpy(aircraft->trail, previous->trail,
+         sizeof(TrailPoint) * previous->trail_count);
+
+  constexpr float kMinMoveDegreesSq = 1e-10f;
+  const float dlat = aircraft->lat - previous->lat;
+  const float dlon = aircraft->lon - previous->lon;
+  if (dlat * dlat + dlon * dlon < kMinMoveDegreesSq) {
+    return;
+  }
+  if (aircraft->trail_count == kTrailPointCount) {
+    memmove(&aircraft->trail[0], &aircraft->trail[1],
+            sizeof(TrailPoint) * (kTrailPointCount - 1));
+    --aircraft->trail_count;
+  }
+  aircraft->trail[aircraft->trail_count++] = {previous->lat, previous->lon};
 }
 
 }  // namespace
@@ -280,6 +325,17 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
     return true;
   }
 
+  const size_t previous_count = s_aircraft_count;
+  for (size_t i = 0; i < previous_count; ++i) {
+    strncpy(s_previous[i].id, s_aircraft[i].id,
+            sizeof(s_previous[i].id) - 1);
+    s_previous[i].id[sizeof(s_previous[i].id) - 1] = '\0';
+    s_previous[i].lat = s_aircraft[i].lat;
+    s_previous[i].lon = s_aircraft[i].lon;
+    s_previous[i].trail_count = s_aircraft[i].trail_count;
+    memcpy(s_previous[i].trail, s_aircraft[i].trail,
+           sizeof(TrailPoint) * s_aircraft[i].trail_count);
+  }
   size_t n = 0;
   for (JsonObject plane : ac) {
     if (n >= kMaxAircraft) {
@@ -292,6 +348,7 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
       continue;
     }
 
+    s_aircraft[n] = Aircraft{};
     s_aircraft[n].lat = plane["lat"].as<float>();
     s_aircraft[n].lon = plane["lon"].as<float>();
     s_aircraft[n].nose_deg = pickNoseHeading(plane);
@@ -299,6 +356,8 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
     s_aircraft[n].gs_knots = pickGroundSpeed(plane);
     s_aircraft[n].military = isMilitary(plane);
     fillTagFields(&s_aircraft[n], plane);
+    carryHistory(&s_aircraft[n],
+                 findPreviousAircraft(s_aircraft[n].id, previous_count));
     ++n;
   }
 

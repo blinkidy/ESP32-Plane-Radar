@@ -27,6 +27,7 @@ uint16_t kColorCenter = 0xFFFF;
 uint16_t kColorAircraft = 0x001F;
 uint16_t kColorMilitary = 0xFC00;
 uint16_t kColorTrackVector = 0xFFFF;
+uint16_t kColorTrail = 0x9D33;
 uint16_t kColorTagType = 0x5DFF;
 uint16_t kColorTagAltitude = 0xFFE0;
 uint16_t kColorTagSpeed = 0xBDF7;
@@ -195,6 +196,8 @@ void initPalette() {
   }
   radar::kColorTrackVector =
       tft.color565(radar::kTrackR, radar::kTrackG, radar::kTrackB);
+  radar::kColorTrail =
+      tft.color565(radar::kTrailR, radar::kTrailG, radar::kTrailB);
   radar::kColorTagType =
       tft.color565(radar::kTagTypeR, radar::kTagTypeG, radar::kTagTypeB);
   radar::kColorTagAltitude =
@@ -278,6 +281,19 @@ bool beyondRingEdgeDotFromLatLon(float lat, float lon, int* out_x, int* out_y) {
 void drawBeyondRingDot(int x, int y, uint16_t color) {
   s_draw->fillSmoothCircle(x, y, radar::kBeyondRingDotRadiusPx,
                            color);
+}
+
+void drawHistoryTrail(const services::adsb::Aircraft& aircraft) {
+  for (uint8_t i = 0; i < aircraft.trail_count; ++i) {
+    int x = 0;
+    int y = 0;
+    latLonToScreen(aircraft.trail[i].lat, aircraft.trail[i].lon, &x, &y);
+    if (distSqFromCenter(x, y) <=
+        radar::kGridOuterRadius * radar::kGridOuterRadius) {
+      s_draw->fillSmoothCircle(x, y, radar::kTrailDotRadiusPx,
+                               radar::kColorTrail);
+    }
+  }
 }
 
 void clipPointToOuterRing(int x0, int y0, int* x1, int* y1) {
@@ -556,6 +572,9 @@ void drawAircraft() {
   }
 
   sortDrawItemsFarFirst(items, draw_count);
+  for (size_t d = 0; d < draw_count; ++d) {
+    drawHistoryTrail(planes[items[d].index]);
+  }
   for (size_t d = 0; d < draw_count; ++d) {
     const size_t i = items[d].index;
     const int x = items[d].x;

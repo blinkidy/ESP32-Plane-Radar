@@ -1,8 +1,16 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 namespace services::adsb {
+
+struct TrailPoint {
+  float lat;
+  float lon;
+};
+
+constexpr size_t kTrailPointCount = 6;
 
 struct Aircraft {
   float lat;
@@ -11,10 +19,13 @@ struct Aircraft {
   float track_deg;
   float gs_knots;
   bool military;
+  char id[8];
   char callsign[9];
   char type[5];
   char alt[12];
   char speed[12];
+  TrailPoint trail[kTrailPointCount];
+  uint8_t trail_count;
 };
 
 constexpr size_t kMaxAircraft = 64;
