@@ -6,6 +6,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag, e.g. v1.0.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -45,7 +50,11 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME}"
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            VERSION="manual-${GITHUB_SHA::7}"
+            VERSION="${{ inputs.version }}"
+          fi
+          if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version '${VERSION}' must be vMAJOR.MINOR.PATCH"
+            exit 1
           fi
           mkdir -p dist
           cp .pio/build/supermini/firmware-merged.bin "dist/plane-radar-${VERSION}.bin"
@@ -55,6 +64,10 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # Manual runs create this tag at the exact commit selected in the
+          # Actions UI. Tag-push runs publish the tag that triggered the job.
+          tag_name: ${{ env.version }}
+          target_commitish: ${{ github.sha }}
           files: dist/*
           generate_release_notes: true
         env:
