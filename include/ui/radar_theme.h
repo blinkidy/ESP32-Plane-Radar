@@ -62,9 +62,9 @@ constexpr int kBeyondRingDotRadiusPx = 4;
 constexpr int kBeyondRingScreenMarginPx = 2;
 /** Target cap height (px) for aircraft tags (bold, slightly above scale label). */
 constexpr int kAircraftTagLabelHeightPx = 13;
-/** Cap label clutter while keeping every aircraft symbol visible. */
-constexpr size_t kMaxVisibleAircraftTags = 4;
-/** Crowded scopes advance to the next page of aircraft details at this rate. */
+/** Treat labels this close as touching, then rotate that overlapping group. */
+constexpr int kAircraftTagCollisionGapPx = 2;
+/** Overlapping groups advance to the next aircraft details at this rate. */
 constexpr unsigned long kAircraftTagPagePeriodMs = 10000UL;
 
 /** RGB565 palette targets (applied in initPalette). */

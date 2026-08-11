@@ -85,8 +85,8 @@ Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
 - **Military aircraft** — orange aircraft symbol and callsign
 - **History trails** — up to six light-gray dots show each aircraft's recent
   positions, making direction and relative speed apparent at a glance
-- **Crowded scopes** — all aircraft symbols remain visible, while details are
-  limited to four aircraft at a time and rotate to the next group every 10 s
+- **Crowded scopes** — all aircraft symbols and non-overlapping details remain
+  visible; only details that touch are grouped and rotate every 10 s
 
 As range decreases (or aircraft approach), targets move inward; beyond-ring dots become full symbols when they cross the outer ring.
 

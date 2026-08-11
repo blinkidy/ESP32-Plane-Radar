@@ -432,14 +432,24 @@ int measureTagBlockWidth(const services::adsb::Aircraft& plane) {
   return max_w;
 }
 
-void drawAircraftTag(int x, int y, const services::adsb::Aircraft& plane) {
+struct TagPlacement {
+  int anchor_x;
+  int top;
+  int left;
+  int right;
+  int bottom;
+  bool tag_on_right;
+};
+
+TagPlacement placeAircraftTag(int x, int y,
+                              const services::adsb::Aircraft& plane) {
   initTagLabelMetrics();
   applyTagStyle();
 
   const int line_h = s_draw->fontHeight();
   const int block_w = measureTagBlockWidth(plane);
   const int block_h = line_h * 4;
-  int ly = y - block_h / 2;
+  int top = y - block_h / 2;
 
   const int symbol_half =
       radar::kAircraftNoseLenPx + radar::kAircraftTailHalfPx;
@@ -449,13 +459,30 @@ void drawAircraftTag(int x, int y, const services::adsb::Aircraft& plane) {
   if (tag_on_right) {
     anchor_x = x + symbol_half + radar::kAircraftLabelGapPx;
     anchor_x = std::min(anchor_x, radar::kSize - block_w - 1);
-    s_draw->setTextDatum(textdatum_t::top_left);
   } else {
     anchor_x = x - symbol_half - radar::kAircraftLabelGapPx;
     anchor_x = std::max(anchor_x, block_w + 1);
-    s_draw->setTextDatum(textdatum_t::top_right);
   }
-  ly = std::max(1, std::min(ly, radar::kSize - block_h - 1));
+  top = std::max(1, std::min(top, radar::kSize - block_h - 1));
+  const int left = tag_on_right ? anchor_x : anchor_x - block_w;
+  return {anchor_x, top, left, left + block_w, top + block_h,
+          tag_on_right};
+}
+
+bool tagPlacementsTouch(const TagPlacement& a, const TagPlacement& b) {
+  const int gap = radar::kAircraftTagCollisionGapPx;
+  return a.left <= b.right + gap && b.left <= a.right + gap &&
+         a.top <= b.bottom + gap && b.top <= a.bottom + gap;
+}
+
+void drawAircraftTag(const services::adsb::Aircraft& plane,
+                     const TagPlacement& placement) {
+  applyTagStyle();
+  s_draw->setTextDatum(placement.tag_on_right ? textdatum_t::top_left
+                                               : textdatum_t::top_right);
+  const int line_h = s_draw->fontHeight();
+  const int anchor_x = placement.anchor_x;
+  int ly = placement.top;
 
   if (plane.callsign[0] != '\0') {
     s_draw->setTextColor(plane.military ? radar::kColorMilitary
@@ -480,6 +507,22 @@ void drawAircraftTag(int x, int y, const services::adsb::Aircraft& plane) {
   if (plane.speed[0] != '\0') {
     s_draw->setTextColor(radar::kColorTagSpeed, radar::kColorBackground);
     s_draw->drawString(plane.speed, anchor_x, ly);
+  }
+}
+
+size_t tagGroupRoot(size_t* parents, size_t index) {
+  while (parents[index] != index) {
+    parents[index] = parents[parents[index]];
+    index = parents[index];
+  }
+  return index;
+}
+
+void joinTagGroups(size_t* parents, size_t a, size_t b) {
+  const size_t root_a = tagGroupRoot(parents, a);
+  const size_t root_b = tagGroupRoot(parents, b);
+  if (root_a != root_b) {
+    parents[root_b] = root_a;
   }
 }
 
@@ -586,22 +629,35 @@ void drawAircraft() {
     drawHeadingTriangle(x, y, planes[i].nose_deg, aircraft_color);
   }
 
-  size_t first_tag = 0;
-  size_t visible_tag_count = draw_count;
-  if (draw_count > radar::kMaxVisibleAircraftTags) {
-    const size_t page_count =
-        (draw_count + radar::kMaxVisibleAircraftTags - 1) /
-        radar::kMaxVisibleAircraftTags;
-    const size_t page =
-        (millis() / radar::kAircraftTagPagePeriodMs) % page_count;
-    first_tag = page * radar::kMaxVisibleAircraftTags;
-    visible_tag_count = std::min(radar::kMaxVisibleAircraftTags,
-                                 draw_count - first_tag);
-  }
-  for (size_t offset = 0; offset < visible_tag_count; ++offset) {
-    const size_t d = first_tag + offset;
+  TagPlacement placements[services::adsb::kMaxAircraft];
+  size_t parents[services::adsb::kMaxAircraft];
+  size_t group_sizes[services::adsb::kMaxAircraft] = {};
+  size_t group_seen[services::adsb::kMaxAircraft] = {};
+  for (size_t d = 0; d < draw_count; ++d) {
     const size_t i = items[d].index;
-    drawAircraftTag(items[d].x, items[d].y, planes[i]);
+    placements[d] = placeAircraftTag(items[d].x, items[d].y, planes[i]);
+    parents[d] = d;
+  }
+  for (size_t a = 0; a < draw_count; ++a) {
+    for (size_t b = a + 1; b < draw_count; ++b) {
+      if (tagPlacementsTouch(placements[a], placements[b])) {
+        joinTagGroups(parents, a, b);
+      }
+    }
+  }
+  for (size_t d = 0; d < draw_count; ++d) {
+    ++group_sizes[tagGroupRoot(parents, d)];
+  }
+
+  const size_t phase = millis() / radar::kAircraftTagPagePeriodMs;
+  for (size_t d = 0; d < draw_count; ++d) {
+    const size_t root = tagGroupRoot(parents, d);
+    const size_t member = group_seen[root]++;
+    if (member != phase % group_sizes[root]) {
+      continue;
+    }
+    const size_t i = items[d].index;
+    drawAircraftTag(planes[i], placements[d]);
   }
 }
 
