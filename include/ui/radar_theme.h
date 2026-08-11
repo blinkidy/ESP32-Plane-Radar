@@ -50,12 +50,6 @@ constexpr float kRunwayLineWidthPx = 2.0f;
 constexpr float kRunwayLineHalfWidth = kRunwayLineWidthPx * 0.5f;
 constexpr int kRunwayLabelHeightPx = kCardinalLabelHeightPx;
 constexpr int kRunwayLabelGapPx = 3;
-/** Runway designators ("12R") sit below the ICAO label in the visual hierarchy. */
-constexpr int kRunwayIdentLabelHeightPx = 9;
-/** Clearance between a runway end and its designator (px). */
-constexpr int kRunwayIdentGapPx = 2;
-/** Shorter than this on screen and a designator would swamp the runway. */
-constexpr int kRunwayIdentMinRunwayPx = 18;
 /** Gap from triangle edge to tag block (px). */
 constexpr int kAircraftLabelGapPx = 1;
 /** Keep symbol centroid inside outer ring by at least this inset (px). */
@@ -67,8 +61,6 @@ constexpr int kBeyondRingDotRadiusPx = 4;
 constexpr int kBeyondRingScreenMarginPx = 2;
 /** Target cap height (px) for aircraft tags (bold, slightly above scale label). */
 constexpr int kAircraftTagLabelHeightPx = 13;
-/** Keep tags this far inside the round bezel (px). */
-constexpr int kTagDiscMarginPx = 2;
 
 /** RGB565 palette targets (applied in initPalette). */
 constexpr uint8_t kBgR = 4;
@@ -89,10 +81,6 @@ constexpr uint8_t kTagTypeB = 0;
 constexpr uint8_t kTagAltR = 90;
 constexpr uint8_t kTagAltG = 200;
 constexpr uint8_t kTagAltB = 255;
-/** Ground speed: paler than altitude so the two numeric rows stay distinct. */
-constexpr uint8_t kTagSpeedR = 170;
-constexpr uint8_t kTagSpeedG = 190;
-constexpr uint8_t kTagSpeedB = 200;
 constexpr uint8_t kRunwayR = 56;
 constexpr uint8_t kRunwayG = 150;
 constexpr uint8_t kRunwayB = 170;
@@ -100,18 +88,6 @@ constexpr uint8_t kRunwayB = 170;
 constexpr uint8_t kRunwayLabelR = 110;
 constexpr uint8_t kRunwayLabelG = 210;
 constexpr uint8_t kRunwayLabelB = 230;
-/** Runway designators: between the line and the ICAO label in weight. */
-constexpr uint8_t kRunwayIdentR = 90;
-constexpr uint8_t kRunwayIdentG = 185;
-constexpr uint8_t kRunwayIdentB = 205;
-
-/** Sweep phosphor: leading edge, then the trail it decays into. */
-constexpr uint8_t kSweepEdgeR = 90;
-constexpr uint8_t kSweepEdgeG = 255;
-constexpr uint8_t kSweepEdgeB = 130;
-constexpr uint8_t kSweepTrailR = 20;
-constexpr uint8_t kSweepTrailG = 150;
-constexpr uint8_t kSweepTrailB = 60;
 
 extern uint16_t kColorBackground;
 extern uint16_t kColorGrid;
@@ -121,9 +97,7 @@ extern uint16_t kColorAircraft;
 extern uint16_t kColorTrackVector;
 extern uint16_t kColorTagType;
 extern uint16_t kColorTagAltitude;
-extern uint16_t kColorTagSpeed;
 extern uint16_t kColorRunway;
 extern uint16_t kColorRunwayLabel;
-extern uint16_t kColorRunwayIdent;
 
 }  // namespace ui::radar

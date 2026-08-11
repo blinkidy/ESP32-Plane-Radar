@@ -4,7 +4,6 @@
 #include <WiFiManager.h>
 
 #include <cstdio>
-#include <vector>
 
 #include <Preferences.h>
 #include <esp_system.h>
@@ -72,20 +71,6 @@ constexpr int kCoordParamLen = 20;
 constexpr char kCoordInputAttrs[] =
     " type=\"number\" step=\"0.000001\"";
 
-constexpr char kPortalHead[] = R"(
-<style>
-:root{--accent:#62ee91;--page:#050b18;--panel:#17233a;--ink:#f4f8ff}
-body{background:var(--page)!important;color:var(--ink)!important}
-.wrap{max-width:560px;color:var(--ink)!important}
-h1,h2,h3,p,div,span,label,dt,dd,th,td{color:var(--ink)!important}
-a{color:#79c8ff!important}a:visited{color:#d6b4ff!important}
-input,select,textarea{background:var(--panel)!important;
- color:var(--ink)!important;
- border:1px solid #7083a1!important}
-button,.btn,input[type=submit]{background:var(--accent)!important;
- color:#04140a!important;border-radius:8px;font-weight:700}
-</style>)";
-
 WiFiManagerParameter s_param_lat("radar_lat", "Latitude (deg)", "0",
                                 kCoordParamLen, kCoordInputAttrs);
 WiFiManagerParameter s_param_lon("radar_lon", "Longitude (deg)", "0",
@@ -98,15 +83,6 @@ WiFiManagerParameter s_param_miles("use_miles", "Display distances in miles", "T
 char s_runways_checkbox_attrs[32] = "type=\"checkbox\"";
 WiFiManagerParameter s_param_runways("show_runways", "Show airport runways", "T", 2,
                                      s_runways_checkbox_attrs, WFM_LABEL_AFTER);
-
-char s_sweep_checkbox_attrs[32] = "type=\"checkbox\" checked";
-WiFiManagerParameter s_param_sweep("show_sweep", "Animate radar sweep", "T", 2,
-                                   s_sweep_checkbox_attrs, WFM_LABEL_AFTER);
-
-char s_routes_checkbox_attrs[32] = "type=\"checkbox\" checked";
-WiFiManagerParameter s_param_routes("show_routes",
-                                    "Show flight routes (origin-destination)", "T", 2,
-                                    s_routes_checkbox_attrs, WFM_LABEL_AFTER);
 
 void refreshPortalParamDefaults() {
   char lat_buf[kCoordParamLen + 1];
@@ -121,12 +97,6 @@ void refreshPortalParamDefaults() {
   snprintf(s_runways_checkbox_attrs, sizeof(s_runways_checkbox_attrs),
            "type=\"checkbox\"%s", ui::radar::showRunways() ? " checked" : "");
   s_param_runways.setValue("T", 2);
-  snprintf(s_sweep_checkbox_attrs, sizeof(s_sweep_checkbox_attrs),
-           "type=\"checkbox\"%s", ui::radar::showSweep() ? " checked" : "");
-  s_param_sweep.setValue("T", 2);
-  snprintf(s_routes_checkbox_attrs, sizeof(s_routes_checkbox_attrs),
-           "type=\"checkbox\"%s", ui::radar::showRoutes() ? " checked" : "");
-  s_param_routes.setValue("T", 2);
 }
 
 void onPortalParamsSaved() {
@@ -136,10 +106,6 @@ void onPortalParamsSaved() {
   }
   ui::radar::saveMilesFromPortal(s_param_miles.getValue());
   ui::radar::saveRunwaysFromPortal(s_param_runways.getValue());
-  ui::radar::saveSweepFromPortal(s_param_sweep.getValue());
-  ui::radar::saveRoutesFromPortal(s_param_routes.getValue());
-  // Re-prime the "checked" attributes so a reopened portal shows the new state.
-  refreshPortalParamDefaults();
 }
 
 void attachPortalParams(WiFiManager& wm) {
@@ -148,8 +114,6 @@ void attachPortalParams(WiFiManager& wm) {
   wm.addParameter(&s_param_lon);
   wm.addParameter(&s_param_miles);
   wm.addParameter(&s_param_runways);
-  wm.addParameter(&s_param_sweep);
-  wm.addParameter(&s_param_routes);
   wm.setSaveParamsCallback(onPortalParamsSaved);
 }
 
@@ -259,11 +223,6 @@ void ensureWifiManager() {
   s_wm.setAPStaticIPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
                            IPAddress(255, 255, 255, 0));
   s_wm.setHostname(config::kPortalHostname);
-  s_wm.setTitle("Plane Radar Advanced Setup");
-  s_wm.setCustomHeadElement(kPortalHead);
-  std::vector<const char*> menu = {"wifi", "param", "info", "update", "sep",
-                                   "restart", "exit"};
-  s_wm.setMenu(menu);
   s_wm.setAPCallback(onConfigPortalApStarted);
   attachPortalParams(s_wm);
   s_wm_configured = true;
@@ -376,7 +335,6 @@ bool openConfigPortal() {
   WiFi.mode(WIFI_OFF);
   delay(50);
   statusScreenPortal();
-  refreshPortalParamDefaults();
   s_wm.setConfigPortalBlocking(false);
   s_wm.startConfigPortal(config::kPortalApName);
   while (s_wm.getConfigPortalActive()) {
