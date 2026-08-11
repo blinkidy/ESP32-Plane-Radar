@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 
 #include "config.h"
 #include "hardware/display.h"
@@ -57,6 +58,7 @@ int s_scale_label_h = 0;
 lgfx::LovyanGFX* s_draw = &tft;
 LGFX_Sprite s_frame(&tft);
 bool s_frame_ready = false;
+bool s_has_tag_collisions = false;
 
 class DrawScope {
  public:
@@ -526,7 +528,7 @@ TagPlacement placeAircraftTag(int x, int y,
 
   // Try all nearby sides and corners. The first two retain the old preference
   // for placing labels toward the center and therefore win equal-score ties.
-  TagPlacement candidates[8];
+  TagPlacement candidates[12];
   size_t candidate_count = 0;
   const auto add_candidate = [&](int left, int top, bool align_left) {
     candidates[candidate_count++] =
@@ -545,6 +547,12 @@ TagPlacement placeAircraftTag(int x, int y,
   add_candidate(x - gap - block_w, y - gap - block_h, false);
   add_candidate(x + gap, y + gap, true);
   add_candidate(x - gap - block_w, y + gap, false);
+  // Side placements offset by a half block give moving aircraft room to keep
+  // their own label visible before it truly reaches a neighboring label.
+  add_candidate(x + gap, y - block_h, true);
+  add_candidate(x - gap - block_w, y - block_h, false);
+  add_candidate(x + gap, y, true);
+  add_candidate(x - gap - block_w, y, false);
 
   size_t best = 0;
   int best_score = 0;
@@ -749,6 +757,10 @@ void drawAircraft() {
       }
     }
   }
+  s_has_tag_collisions = false;
+  for (size_t d = 0; d < draw_count; ++d) {
+    s_has_tag_collisions = s_has_tag_collisions || collides[d];
+  }
 
   const size_t phase = millis() / radar::kAircraftTagPagePeriodMs;
   bool visible[services::adsb::kMaxAircraft] = {};
@@ -766,6 +778,20 @@ void drawAircraft() {
       if (tagGroupRoot(parents, d) == root_candidate) {
         members[member_count++] = d;
       }
+    }
+    // Aircraft distance/order can change on every ADS-B refresh. Sort by the
+    // stable ICAO identifier so the selected page does not change until the
+    // configured page period expires.
+    for (size_t i = 1; i < member_count; ++i) {
+      const size_t key = members[i];
+      size_t j = i;
+      while (j > 0 &&
+             strcmp(planes[items[members[j - 1]].index].id,
+                    planes[items[key].index].id) > 0) {
+        members[j] = members[j - 1];
+        --j;
+      }
+      members[j] = key;
     }
     for (size_t rank = 0; rank < member_count; ++rank) {
       const size_t d = members[(phase + rank) % member_count];
@@ -789,8 +815,13 @@ void drawAircraft() {
   for (size_t d = 0; d < draw_count; ++d) {
     if (visible[d] && collides[d] && pulse_on) {
       const size_t i = items[d].index;
+      const int glow_r = radar::kAircraftNoseLenPx + 3;
+      s_draw->drawCircle(items[d].x, items[d].y, glow_r,
+                         radar::kColorAircraft);
+      s_draw->drawCircle(items[d].x, items[d].y, glow_r + 1,
+                         radar::kColorAircraft);
       drawHeadingTriangle(items[d].x, items[d].y, planes[i].nose_deg,
-                          radar::kColorLabel);
+                          radar::kColorAircraft);
     }
   }
 
@@ -970,5 +1001,7 @@ void radarDisplayRefreshAircraft() {
 
   radarDisplayDraw();
 }
+
+bool radarDisplayNeedsAnimation() { return s_has_tag_collisions; }
 
 }  // namespace ui

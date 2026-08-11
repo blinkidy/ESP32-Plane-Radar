@@ -67,9 +67,9 @@ constexpr int kAircraftTagCollisionGapPx = 2;
 /** Keep every corner of an aircraft tag inside the round panel. */
 constexpr int kAircraftTagScreenMarginPx = 2;
 /** Overlapping groups advance to the next aircraft details at this rate. */
-constexpr unsigned long kAircraftTagPagePeriodMs = 10000UL;
-/** Blink rate for the aircraft whose tag is selected in a collision set. */
-constexpr unsigned long kAircraftTagPulsePeriodMs = 3000UL;
+constexpr unsigned long kAircraftTagPagePeriodMs = 8000UL;
+/** Toggle interval for the red glow around a collision-selected aircraft. */
+constexpr unsigned long kAircraftTagPulsePeriodMs = 500UL;
 
 /** RGB565 palette targets (applied in initPalette). */
 constexpr uint8_t kBgR = 4;

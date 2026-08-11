@@ -20,6 +20,7 @@ bool g_radar_visible = false;
 unsigned long g_wifi_down_since = 0;
 unsigned long g_last_reconnect_ms = 0;
 unsigned long g_last_adsb_fetch_ms = 0;
+unsigned long g_last_radar_animation_ms = 0;
 
 void showRadarIfConnected() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -112,6 +113,11 @@ void loop() {
     } else if (millis() - g_last_adsb_fetch_ms >= config::kAdsbFetchIntervalMs) {
       g_last_adsb_fetch_ms = millis();
       fetchAndDrawAircraft();
+    } else if (ui::radarDisplayNeedsAnimation() &&
+               millis() - g_last_radar_animation_ms >=
+                   config::kRadarAnimationIntervalMs) {
+      g_last_radar_animation_ms = millis();
+      ui::radarDisplayRefreshAircraft();
     }
   }
 
