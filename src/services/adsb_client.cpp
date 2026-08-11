@@ -5,9 +5,11 @@
 
 #include <ArduinoJson.h>
 
+#include <cmath>
 #include <cstring>
 
 #include "config.h"
+#include "data/large_airports.h"
 
 namespace services::adsb {
 
@@ -205,9 +207,22 @@ const char* airportCode(JsonObjectConst airport) {
   return nullptr;
 }
 
-void parseRoute(const String& payload, const char* requested_callsign,
-                char* out, size_t out_len) {
+void copyAirportIcao(JsonObjectConst airport, char* out, size_t out_len) {
   out[0] = '\0';
+  const char* icao = airport["icao_code"].as<const char*>();
+  if (icao != nullptr) {
+    strncpy(out, icao, out_len - 1);
+    out[out_len - 1] = '\0';
+  }
+}
+
+void parseRoute(const String& payload, const char* requested_callsign,
+                char* out, size_t out_len, char* origin_icao,
+                size_t origin_len, char* destination_icao,
+                size_t destination_len) {
+  out[0] = '\0';
+  origin_icao[0] = '\0';
+  destination_icao[0] = '\0';
   JsonDocument doc;
   if (deserializeJson(doc, payload) != DeserializationError::Ok) {
     return;
@@ -219,13 +234,51 @@ void parseRoute(const String& payload, const char* requested_callsign,
       strcmp(response_callsign, requested_callsign) != 0) {
     return;
   }
-  const char* origin =
-      airportCode(route["origin"].as<JsonObjectConst>());
-  const char* destination =
-      airportCode(route["destination"].as<JsonObjectConst>());
+  const JsonObjectConst origin_obj = route["origin"].as<JsonObjectConst>();
+  const JsonObjectConst destination_obj =
+      route["destination"].as<JsonObjectConst>();
+  const char* origin = airportCode(origin_obj);
+  const char* destination = airportCode(destination_obj);
   if (origin != nullptr && destination != nullptr) {
     snprintf(out, out_len, "%s-%s", origin, destination);
+    copyAirportIcao(origin_obj, origin_icao, origin_len);
+    copyAirportIcao(destination_obj, destination_icao, destination_len);
   }
+}
+
+const data::large_airports::Airport* findAirport(const char* ident) {
+  for (size_t i = 0; i < data::large_airports::kAirportCount; ++i) {
+    if (strcmp(data::large_airports::kAirports[i].ident, ident) == 0) {
+      return &data::large_airports::kAirports[i];
+    }
+  }
+  return nullptr;
+}
+
+bool routeHeadsTowardDestination(const Aircraft& aircraft,
+                                 const char* destination_icao) {
+  const data::large_airports::Airport* destination =
+      findAirport(destination_icao);
+  if (destination == nullptr) {
+    return true;
+  }
+  constexpr float kE7ToDegrees = 1e-7f;
+  constexpr float kDegreesToRadians = 0.01745329252f;
+  const float dest_lat = destination->lat_e7 * kE7ToDegrees;
+  const float dest_lon = destination->lon_e7 * kE7ToDegrees;
+  const float east = (dest_lon - aircraft.lon) *
+                     cosf(aircraft.lat * kDegreesToRadians);
+  const float north = dest_lat - aircraft.lat;
+  const float distance = sqrtf(east * east + north * north);
+  if (distance < 0.01f) {
+    return true;
+  }
+  const float track = aircraft.track_deg * kDegreesToRadians;
+  const float alignment =
+      (sinf(track) * east + cosf(track) * north) / distance;
+  // Allow normal vectors, holds, and deviations, but reject a destination
+  // clearly behind the aircraft. This suppresses stale scheduled routes.
+  return alignment >= -0.25f;
 }
 
 void storeRoute(const char* callsign, const char* route) {
@@ -393,13 +446,25 @@ bool fetchPendingRoute() {
   client.setInsecure();
   HTTPClient http;
   char route[sizeof(aircraft->route)];
+  char origin_icao[5];
+  char destination_icao[5];
   route[0] = '\0';
+  origin_icao[0] = '\0';
+  destination_icao[0] = '\0';
   if (http.begin(client, url)) {
     http.setTimeout(4000);
     if (http.GET() == HTTP_CODE_OK) {
-      parseRoute(http.getString(), aircraft->callsign, route, sizeof(route));
+      parseRoute(http.getString(), aircraft->callsign, route, sizeof(route),
+                 origin_icao, sizeof(origin_icao), destination_icao,
+                 sizeof(destination_icao));
     }
     http.end();
+  }
+  if (route[0] != '\0' && destination_icao[0] != '\0' &&
+      !routeHeadsTowardDestination(*aircraft, destination_icao)) {
+    Serial.printf("route: rejected implausible %s -> %s\n",
+                  aircraft->callsign, route);
+    route[0] = '\0';
   }
   storeRoute(aircraft->callsign, route);
   strncpy(aircraft->route, route, sizeof(aircraft->route) - 1);
