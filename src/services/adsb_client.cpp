@@ -340,6 +340,9 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   }
   http.end();
 
+  // Parsing and committing a busy response can take long enough to show on a
+  // 10 fps scope. Give the cosmetic sweep a frame before that CPU-only work.
+  pollNetwork();
   JsonDocument doc;
   const DeserializationError err = deserializeJson(doc, payload);
   if (err) {
@@ -355,6 +358,9 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
 
   size_t n = 0;
   for (JsonObject plane : ac) {
+    // Yield animation time while a newly busy scope is being populated. This
+    // also keeps button and portal servicing responsive during a large reply.
+    pollNetwork();
     if (n >= kMaxAircraft) {
       break;
     }
@@ -374,6 +380,7 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
     ++n;
   }
 
+  pollNetwork();
   replaceTracks(s_incoming, n, millis());
   Serial.printf("adsb: %u aircraft\n", static_cast<unsigned>(n));
   return true;

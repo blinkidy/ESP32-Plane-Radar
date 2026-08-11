@@ -74,11 +74,16 @@ constexpr char kCoordInputAttrs[] =
 
 constexpr char kPortalHead[] = R"(
 <style>
-:root{--accent:#32d36b;--panel:#101a2f;--ink:#ecf4ff}
-body{background:#050b18;color:var(--ink)}
-.wrap{max-width:560px}button,.btn,input[type=submit]{border-radius:8px}
-button,.btn,input[type=submit]{background:var(--accent);color:#06120a}
-input{background:var(--panel);color:var(--ink);border-color:#34445f}
+:root{--accent:#62ee91;--page:#050b18;--panel:#17233a;--ink:#f4f8ff}
+body{background:var(--page)!important;color:var(--ink)!important}
+.wrap{max-width:560px;color:var(--ink)!important}
+h1,h2,h3,p,div,span,label,dt,dd,th,td{color:var(--ink)!important}
+a{color:#79c8ff!important}a:visited{color:#d6b4ff!important}
+input,select,textarea{background:var(--panel)!important;
+ color:var(--ink)!important;
+ border:1px solid #7083a1!important}
+button,.btn,input[type=submit]{background:var(--accent)!important;
+ color:#04140a!important;border-radius:8px;font-weight:700}
 </style>)";
 
 WiFiManagerParameter s_param_lat("radar_lat", "Latitude (deg)", "0",

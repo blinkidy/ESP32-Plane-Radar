@@ -212,7 +212,8 @@ void initSweepRamp() {
   s_sweep_ramp_ready = true;
 
   const float last = static_cast<float>(kSweepSteps - 1);
-  constexpr float kSweepBrightness = 0.75f;
+  // Half of the original intensity after two requested 25-point reductions.
+  constexpr float kSweepBrightness = 0.50f;
   for (size_t i = 0; i < kSweepSteps; ++i) {
     const float t = static_cast<float>(i) / last;
     const float decay = (1.0f - t) * (1.0f - t);
