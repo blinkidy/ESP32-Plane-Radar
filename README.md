@@ -83,6 +83,8 @@ Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
 - **Tags** — placed toward the **center**: west (left) → tag on the **right** of the symbol; east (right) → tag on the **left**
 - **Altitude trend** — `^` climbing, `v` descending, and no marker when level
 - **Military aircraft** — orange aircraft symbol and callsign
+- **Crowded scopes** — all aircraft symbols remain visible, while details are
+  limited to four aircraft at a time and rotate to the next group every 10 s
 
 As range decreases (or aircraft approach), targets move inward; beyond-ring dots become full symbols when they cross the outer ring.
 

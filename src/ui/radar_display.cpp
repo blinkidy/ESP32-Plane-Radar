@@ -566,7 +566,21 @@ void drawAircraft() {
         planes[i].military ? radar::kColorMilitary : radar::kColorAircraft;
     drawHeadingTriangle(x, y, planes[i].nose_deg, aircraft_color);
   }
-  for (size_t d = 0; d < draw_count; ++d) {
+
+  size_t first_tag = 0;
+  size_t visible_tag_count = draw_count;
+  if (draw_count > radar::kMaxVisibleAircraftTags) {
+    const size_t page_count =
+        (draw_count + radar::kMaxVisibleAircraftTags - 1) /
+        radar::kMaxVisibleAircraftTags;
+    const size_t page =
+        (millis() / radar::kAircraftTagPagePeriodMs) % page_count;
+    first_tag = page * radar::kMaxVisibleAircraftTags;
+    visible_tag_count = std::min(radar::kMaxVisibleAircraftTags,
+                                 draw_count - first_tag);
+  }
+  for (size_t offset = 0; offset < visible_tag_count; ++offset) {
+    const size_t d = first_tag + offset;
     const size_t i = items[d].index;
     drawAircraftTag(items[d].x, items[d].y, planes[i]);
   }
