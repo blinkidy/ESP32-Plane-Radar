@@ -256,8 +256,8 @@ void ensureWifiManager() {
   s_wm.setHostname(config::kPortalHostname);
   s_wm.setTitle("Plane Radar Advanced Setup");
   s_wm.setCustomHeadElement(kPortalHead);
-  const std::vector<const char*> menu = {"wifi", "param", "info", "update",
-                                         "sep", "restart", "exit"};
+  std::vector<const char*> menu = {"wifi", "param", "info", "update", "sep",
+                                   "restart", "exit"};
   s_wm.setMenu(menu);
   s_wm.setAPCallback(onConfigPortalApStarted);
   attachPortalParams(s_wm);
