@@ -60,6 +60,44 @@ LGFX_Sprite s_frame(&tft);
 bool s_frame_ready = false;
 bool s_fast_tag_placement = false;
 
+struct CachedTagChoice {
+  char id[8] = {};
+  uint8_t candidate = 0;
+  bool valid = false;
+};
+CachedTagChoice s_tag_choices[services::adsb::kMaxAircraft];
+
+CachedTagChoice* cachedTagChoice(const char* id) {
+  CachedTagChoice* empty = nullptr;
+  for (auto& choice : s_tag_choices) {
+    if (choice.id[0] == '\0') {
+      if (empty == nullptr) {
+        empty = &choice;
+      }
+    } else if (strcmp(choice.id, id) == 0) {
+      return &choice;
+    }
+  }
+  if (empty != nullptr && id[0] != '\0') {
+    strncpy(empty->id, id, sizeof(empty->id) - 1);
+  }
+  if (empty != nullptr || id[0] == '\0') {
+    return empty;
+  }
+  // Reuse a deterministic slot after enough different aircraft have passed
+  // through to fill the cache.
+  size_t slot = 0;
+  for (const char* p = id; *p != '\0'; ++p) {
+    slot = (slot * 33U + static_cast<unsigned char>(*p)) %
+           services::adsb::kMaxAircraft;
+  }
+  CachedTagChoice& replacement = s_tag_choices[slot];
+  strncpy(replacement.id, id, sizeof(replacement.id) - 1);
+  replacement.id[sizeof(replacement.id) - 1] = '\0';
+  replacement.valid = false;
+  return &replacement;
+}
+
 class DrawScope {
  public:
   explicit DrawScope(lgfx::LovyanGFX& gfx) : prev_(s_draw) { s_draw = &gfx; }
@@ -519,7 +557,8 @@ TagPlacement makeTagPlacement(int left, int top, int block_w, int block_h,
 TagPlacement placeAircraftTag(int x, int y,
                               const services::adsb::Aircraft& plane,
                               const TagPlacement* placed,
-                              size_t placed_count) {
+                              size_t placed_count, const int* aircraft_x,
+                              const int* aircraft_y, size_t aircraft_count) {
   initTagLabelMetrics();
   applyTagStyle();
 
@@ -558,6 +597,49 @@ TagPlacement placeAircraftTag(int x, int y,
   add_candidate(x + gap, y, true);
   add_candidate(x - gap - block_w, y, false);
 
+  const auto hard_conflict = [&](const TagPlacement& candidate) {
+    const int nearest_x =
+        std::max(candidate.left, std::min(x, candidate.right));
+    const int nearest_y =
+        std::max(candidate.top, std::min(y, candidate.bottom));
+    const int tag_dx = x - nearest_x;
+    const int tag_dy = y - nearest_y;
+    const int max_distance = radar::kAircraftTagMaxDistancePx;
+    if (tag_dx * tag_dx + tag_dy * tag_dy > max_distance * max_distance ||
+        runway::tagRectOverlapsRunway(candidate.left, candidate.top,
+                                      candidate.right, candidate.bottom)) {
+      return true;
+    }
+    for (size_t p = 0; p < placed_count; ++p) {
+      if (tagPlacementsTouch(candidate, placed[p])) {
+        return true;
+      }
+    }
+    // Treat every aircraft symbol as occupied even when busy-scope pixel
+    // sampling is disabled. Do not let another aircraft's text cover it.
+    for (size_t a = 0; a < aircraft_count; ++a) {
+      if (aircraft_x[a] == x && aircraft_y[a] == y) {
+        continue;
+      }
+      const int symbol_x =
+          std::max(candidate.left, std::min(aircraft_x[a], candidate.right));
+      const int symbol_y =
+          std::max(candidate.top, std::min(aircraft_y[a], candidate.bottom));
+      const int dx = aircraft_x[a] - symbol_x;
+      const int dy = aircraft_y[a] - symbol_y;
+      if (dx * dx + dy * dy <= symbol_half * symbol_half) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  CachedTagChoice* cached = cachedTagChoice(plane.id);
+  if (cached != nullptr && cached->valid && cached->candidate < candidate_count &&
+      !hard_conflict(candidates[cached->candidate])) {
+    return candidates[cached->candidate];
+  }
+
   size_t best = 0;
   int best_score = 0;
   for (size_t i = 0; i < candidate_count; ++i) {
@@ -582,10 +664,28 @@ TagPlacement placeAircraftTag(int x, int y,
         score += kOtherTagOverlapPenalty;
       }
     }
+    for (size_t a = 0; a < aircraft_count; ++a) {
+      if (aircraft_x[a] == x && aircraft_y[a] == y) {
+        continue;
+      }
+      const int symbol_x = std::max(
+          candidates[i].left, std::min(aircraft_x[a], candidates[i].right));
+      const int symbol_y = std::max(
+          candidates[i].top, std::min(aircraft_y[a], candidates[i].bottom));
+      const int dx = aircraft_x[a] - symbol_x;
+      const int dy = aircraft_y[a] - symbol_y;
+      if (dx * dx + dy * dy <= symbol_half * symbol_half) {
+        score += kOtherTagOverlapPenalty;
+      }
+    }
     if (i == 0 || score < best_score) {
       best = i;
       best_score = score;
     }
+  }
+  if (cached != nullptr) {
+    cached->candidate = static_cast<uint8_t>(best);
+    cached->valid = true;
   }
   return candidates[best];
 }
@@ -756,10 +856,33 @@ void drawAircraft() {
   }
 
   TagPlacement placements[services::adsb::kMaxAircraft];
+  TagPlacement placed[services::adsb::kMaxAircraft];
+  int aircraft_x[services::adsb::kMaxAircraft];
+  int aircraft_y[services::adsb::kMaxAircraft];
+  size_t placement_order[services::adsb::kMaxAircraft];
   for (size_t d = 0; d < draw_count; ++d) {
+    aircraft_x[d] = items[d].x;
+    aircraft_y[d] = items[d].y;
+    placement_order[d] = d;
+  }
+  for (size_t i = 1; i < draw_count; ++i) {
+    const size_t key = placement_order[i];
+    size_t j = i;
+    while (j > 0 &&
+           strcmp(planes[items[placement_order[j - 1]].index].id,
+                  planes[items[key].index].id) > 0) {
+      placement_order[j] = placement_order[j - 1];
+      --j;
+    }
+    placement_order[j] = key;
+  }
+  for (size_t order = 0; order < draw_count; ++order) {
+    const size_t d = placement_order[order];
     const size_t i = items[d].index;
     placements[d] = placeAircraftTag(items[d].x, items[d].y, planes[i],
-                                     placements, d);
+                                     placed, order, aircraft_x, aircraft_y,
+                                     draw_count);
+    placed[order] = placements[d];
   }
 
   bool collides[services::adsb::kMaxAircraft] = {};
@@ -829,16 +952,16 @@ void drawAircraft() {
   for (size_t d = 0; d < draw_count; ++d) {
     if (visible[d] && collides[d] && pulse_on) {
       const size_t i = items[d].index;
-      // Build a thicker red silhouette around the normal symbol. This reads as
-      // a red glow without introducing the white circles used by trail points.
+      // Build a thicker silhouette in the aircraft-type tag color around the
+      // normal red symbol. The contrasting edge is much easier to see.
       drawHeadingTriangle(items[d].x - 1, items[d].y, planes[i].nose_deg,
-                          radar::kColorAircraft);
+                          radar::kColorTagType);
       drawHeadingTriangle(items[d].x + 1, items[d].y, planes[i].nose_deg,
-                          radar::kColorAircraft);
+                          radar::kColorTagType);
       drawHeadingTriangle(items[d].x, items[d].y - 1, planes[i].nose_deg,
-                          radar::kColorAircraft);
+                          radar::kColorTagType);
       drawHeadingTriangle(items[d].x, items[d].y + 1, planes[i].nose_deg,
-                          radar::kColorAircraft);
+                          radar::kColorTagType);
       drawHeadingTriangle(items[d].x, items[d].y, planes[i].nose_deg,
                           radar::kColorAircraft);
     }
