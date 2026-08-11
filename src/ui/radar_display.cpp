@@ -478,6 +478,8 @@ struct BeyondDotDrawItem {
   int x = 0;
   int y = 0;
   int dist_sq = 0;
+  // Snapshot the matching aircraft color when this independent list is built;
+  // indexing the in-ring items[] list here would associate the wrong aircraft.
   uint16_t color = 0;
 };
 

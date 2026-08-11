@@ -148,8 +148,8 @@ float pickVerticalRate(const JsonObject& plane) {
 
 bool isMilitary(const JsonObject& plane) {
   // readsb/tar1090 database flags: bit 0 marks a military aircraft.
-  return plane["dbFlags"].is<unsigned>() &&
-         (plane["dbFlags"].as<unsigned>() & 1U) != 0;
+  return plane["dbFlags"].is<int>() &&
+         (plane["dbFlags"].as<int>() & 1) != 0;
 }
 
 bool isOnGround(const JsonObject& plane) {
