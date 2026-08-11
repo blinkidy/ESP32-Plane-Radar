@@ -68,8 +68,6 @@ constexpr int kAircraftTagCollisionGapPx = 2;
 constexpr int kAircraftTagScreenMarginPx = 2;
 /** Overlapping groups advance to the next aircraft details at this rate. */
 constexpr unsigned long kAircraftTagPagePeriodMs = 8000UL;
-/** Toggle the red glow on successive ADS-B display updates. */
-constexpr unsigned long kAircraftTagPulsePeriodMs = 3000UL;
 /** Maximum allowed gap between an aircraft symbol and its information (px). */
 constexpr int kAircraftTagMaxDistancePx = 18;
 

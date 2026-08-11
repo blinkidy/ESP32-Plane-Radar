@@ -947,13 +947,11 @@ void drawAircraft() {
     }
   }
 
-  const bool pulse_on =
-      (millis() / radar::kAircraftTagPulsePeriodMs) % 2 == 0;
   for (size_t d = 0; d < draw_count; ++d) {
-    if (visible[d] && collides[d] && pulse_on) {
+    if (visible[d] && collides[d]) {
       const size_t i = items[d].index;
-      // Pulse the entire selected aircraft in the aircraft-type blue instead
-      // of using a subtle outline around the normal red symbol.
+      // Keep the selected aircraft blue for the entire time its information is
+      // displayed in a collision group.
       drawHeadingTriangle(items[d].x, items[d].y, planes[i].nose_deg,
                           radar::kColorTagType);
     }
