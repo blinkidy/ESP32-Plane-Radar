@@ -442,6 +442,14 @@ struct TagPlacement {
 };
 
 int tagPlacementInkScore(const TagPlacement& placement) {
+  // The physical panel has no MISO connection, so reading it cannot provide a
+  // useful occupancy map and would turn every sample into a slow SPI
+  // transaction. Returning the same score for every candidate preserves the
+  // original center-facing placement through the candidate-order tie-breaker.
+  if (s_draw == &tft) {
+    return 0;
+  }
+
   // The frame already contains the grid, runways, trails, vectors, and aircraft
   // symbols. Prefer the candidate whose footprint covers the fewest drawn
   // pixels, rather than always putting the tag on a fixed side of the target.
