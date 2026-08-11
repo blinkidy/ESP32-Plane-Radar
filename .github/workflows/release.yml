@@ -5,13 +5,10 @@ on:
   push:
     tags:
       - "v*"
-  # Manual runs must supply the tag to cut: a GitHub Release cannot exist
-  # without one, so a dispatch from a branch had no way to publish and always
-  # failed at the last step.
   workflow_dispatch:
     inputs:
       version:
-        description: "Tag to create and release, e.g. v1.0.0"
+        description: "Release tag, e.g. v1.0.0"
         required: true
         type: string
 
@@ -56,7 +53,7 @@ jobs:
             VERSION="${{ inputs.version }}"
           fi
           if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Version '${VERSION}' is not a vMAJOR.MINOR.PATCH tag"
+            echo "::error::Version '${VERSION}' must be vMAJOR.MINOR.PATCH"
             exit 1
           fi
           mkdir -p dist
@@ -67,9 +64,10 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # Explicit, so a manual run creates the tag at this commit rather
-          # than relying on the ref already being one.
+          # Manual runs create this tag at the exact commit selected in the
+          # Actions UI. Tag-push runs publish the tag that triggered the job.
           tag_name: ${{ env.version }}
+          target_commitish: ${{ github.sha }}
           files: dist/*
           generate_release_notes: true
         env:

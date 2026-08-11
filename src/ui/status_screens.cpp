@@ -11,9 +11,6 @@
 #include "hardware/display.h"
 #include "hardware/display_font.h"
 
-// Not `fonts`: LovyanGFX >=1.2.2x declares a global `namespace fonts` (and a
-// `using namespace fonts;`) in lgfx_fonts.hpp, which a same-named alias here
-// would redeclare. platformio.ini floats on ^1.2.7, so this must work on both.
 namespace radar_fonts = lgfx::v1::fonts;
 
 namespace {
