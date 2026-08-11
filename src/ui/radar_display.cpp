@@ -28,6 +28,7 @@ uint16_t kColorAircraft = 0x001F;
 uint16_t kColorTrackVector = 0xFFFF;
 uint16_t kColorTagType = 0x5DFF;
 uint16_t kColorTagAltitude = 0xFFE0;
+uint16_t kColorTagSpeed = 0xBDF7;
 uint16_t kColorRunway = 0x4D5F;
 uint16_t kColorRunwayLabel = 0x7DFF;
 
@@ -193,6 +194,8 @@ void initPalette() {
       tft.color565(radar::kTagTypeR, radar::kTagTypeG, radar::kTagTypeB);
   radar::kColorTagAltitude =
       tft.color565(radar::kTagAltR, radar::kTagAltG, radar::kTagAltB);
+  radar::kColorTagSpeed =
+      tft.color565(radar::kTagSpeedR, radar::kTagSpeedG, radar::kTagSpeedB);
   radar::kColorRunway =
       tft.color565(radar::kRunwayR, radar::kRunwayG, radar::kRunwayB);
   radar::kColorRunwayLabel = tft.color565(radar::kRunwayLabelR, radar::kRunwayLabelG,
@@ -399,6 +402,12 @@ int measureTagBlockWidth(const services::adsb::Aircraft& plane) {
       max_w = w;
     }
   }
+  if (plane.speed[0] != '\0') {
+    const int w = s_draw->textWidth(plane.speed);
+    if (w > max_w) {
+      max_w = w;
+    }
+  }
   return max_w;
 }
 
@@ -408,7 +417,7 @@ void drawAircraftTag(int x, int y, const services::adsb::Aircraft& plane) {
 
   const int line_h = s_draw->fontHeight();
   const int block_w = measureTagBlockWidth(plane);
-  const int block_h = line_h * 3;
+  const int block_h = line_h * 4;
   int ly = y - block_h / 2;
 
   const int symbol_half =
@@ -442,6 +451,12 @@ void drawAircraftTag(int x, int y, const services::adsb::Aircraft& plane) {
   if (plane.alt[0] != '\0') {
     s_draw->setTextColor(radar::kColorTagAltitude, radar::kColorBackground);
     s_draw->drawString(plane.alt, anchor_x, ly);
+  }
+  ly += line_h;
+
+  if (plane.speed[0] != '\0') {
+    s_draw->setTextColor(radar::kColorTagSpeed, radar::kColorBackground);
+    s_draw->drawString(plane.speed, anchor_x, ly);
   }
 }
 

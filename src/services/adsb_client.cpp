@@ -134,12 +134,6 @@ float pickGroundSpeed(const JsonObject& plane) {
   if (readJsonFloat(plane, "gs", &v)) {
     return v;
   }
-  if (readJsonFloat(plane, "tas", &v)) {
-    return v;
-  }
-  if (readJsonFloat(plane, "ias", &v)) {
-    return v;
-  }
   return 0.0f;
 }
 
@@ -187,6 +181,17 @@ void formatAltitudeTag(const JsonObject& plane, char* out, size_t out_len) {
   }
 }
 
+void formatGroundSpeedTag(const JsonObject& plane, char* out, size_t out_len) {
+  out[0] = '\0';
+  if (out_len == 0) {
+    return;
+  }
+  const float gs = pickGroundSpeed(plane);
+  if (gs > 0.0f) {
+    snprintf(out, out_len, "%d kt", static_cast<int>(lroundf(gs)));
+  }
+}
+
 void fillTagFields(Aircraft* ac, const JsonObject& plane) {
   copyJsonStringTrimmed(plane, "flight", ac->callsign, sizeof(ac->callsign));
   if (ac->callsign[0] == '\0') {
@@ -195,6 +200,7 @@ void fillTagFields(Aircraft* ac, const JsonObject& plane) {
 
   copyJsonStringTrimmed(plane, "t", ac->type, sizeof(ac->type));
   formatAltitudeTag(plane, ac->alt, sizeof(ac->alt));
+  formatGroundSpeedTag(plane, ac->speed, sizeof(ac->speed));
 }
 
 }  // namespace
