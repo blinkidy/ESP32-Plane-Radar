@@ -33,7 +33,7 @@ During setup you can also hold BOOT at power-on to force a credential reset (sam
 **Reconfigure anytime** (after the device is on your network):
 
 1. Open **`http://plane-radar.local`** or **`http://<device-ip>`** (e.g. from your router or serial log at boot)
-2. Change Wi‑Fi, location, units, runway overlay, sweep, or route lookup; save
+2. Change Wi‑Fi, location, units, or runway overlay; save
 
 The same portal runs on the setup AP and on the device’s LAN IP while connected to Wi‑Fi. mDNS hostname is `plane-radar` → **plane-radar.local** (`kPortalHostname` in `config.h`). Some clients resolve `.local` slowly; use the IP if needed.
 
@@ -43,9 +43,7 @@ The same portal runs on the setup AP and on the device’s LAN IP while connecte
 |-------|---------|
 | **Latitude / Longitude** | Radar center and ADS-B query position (defaults in `config.h` until set) |
 | **Display distances in miles** | Ring scale label in **mi** instead of **km** (e.g. `6mi` vs `10km`) |
-| **Show airport runways** | Airport runway overlay on the radar (off to hide) |
-| **Animate radar sweep** | Rotating phosphor sweep, 12 s per revolution (off for a static grid) |
-| **Show flight routes (origin-destination)** | Look up each callsign's route on adsbdb.com and add it to the tag |
+| **Show airport runways** | Large/medium-airport runway overlay (off to hide) |
 
 After a reset, the device reboots and shows the setup screen immediately (no “Connecting” loop on stale credentials).
 
@@ -70,38 +68,26 @@ Layout and colors: `include/ui/radar_theme.h`.
 
 Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
 
-### Sweep
-
-- Rotating sweep, 12 s per revolution, with a 70° phosphor trail that decays behind the leading edge
-- Painted **under** the rings, runways and traffic, so the scope stays readable as it passes
-- Between the 3 s ADS-B polls the display refreshes at ~10 fps and aircraft are dead-reckoned along
-  their track, then cross-faded into the next real fix — so targets drift instead of jumping
-- Toggle in the Wi‑Fi setup portal. With the sweep off and no traffic in range, the radar stops
-  redrawing entirely
-
 ### Runways
 
-- Large **and medium** airports from OurAirports; all open runway strips in range (helipads excluded).
-  Medium fields need a runway ≥ 1200 m to be included — plenty of airports that dominate a local
-  picture (e.g. Phoenix-Mesa Gateway `KIWA`) are `medium_airport` upstream
-- Teal runway lines with one ICAO label per airport (e.g. `KJFK`)
-- **Runway designators** at each threshold (e.g. `12R` / `30L`), so orientation is readable at a glance.
-  Parallel runways are grouped by heading and only the longest is labelled, without its L/C/R suffix
-  (`12` / `30`), rather than stacking three tags a few pixels apart
-- Update the embedded list: `python3 scripts/build_airports.py`
+- Large airports and medium airports with a runway of at least 1200 m from
+  OurAirports; all open runway strips in range (helipads excluded)
+- Teal runway lines without airport ICAO text; toggle in the Wi‑Fi setup portal
+- Update the embedded list: `python3 scripts/build_large_airports.py`
 
 ### Aircraft
 
-- **Inside the outer ring** — red heading triangle, magenta speed vector (clipped at the ring), and a
-  data tag: callsign / type / route / altitude / ground speed
-- Tags are placed by searching eight slots around the symbol and rejecting any that would run off
-  screen or collide with another tag or aircraft. Closest traffic claims space first; a tag that
-  cannot fit sheds rows (type, then speed, then route) before being dropped
-- Routes come from [adsbdb.com](https://api.adsbdb.com) as IATA codes (`PHX-DEN`), fetched on a
-  background task and cached, so the first sighting of a callsign shows no route and later polls fill
-  it in. Ground speed is always in **knots**
+- **Inside the outer ring** — red heading triangle, magenta speed vector
+  (clipped at the ring), and callsign / type / altitude / ground-speed tags
 - **Outside the ring** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate past the ring)
-- **Tags** — placed toward the **center**: west (left) → tag on the **right** of the symbol; east (right) → tag on the **left**
+- **Tags** — try eight nearby positions and favor clear display space, avoiding
+  runway lines and other aircraft details when possible
+- **Altitude trend** — `^` climbing, `v` descending, and no marker when level
+- **Military aircraft** — orange aircraft symbol and callsign
+- **History trails** — up to six light-gray dots show each aircraft's recent
+  positions, making direction and relative speed apparent at a glance
+- **Crowded scopes** — all aircraft symbols and non-overlapping details remain
+  visible; only details that touch are grouped and rotate every 10 s
 
 As range decreases (or aircraft approach), targets move inward; beyond-ring dots become full symbols when they cross the outer ring.
 
@@ -137,30 +123,25 @@ include/
     display.h
     display_font.h
   data/
-    airports.h
+    large_airports.h
   ui/
     radar_theme.h
     radar_range.h
     radar_display.h
-    radar_projection.h
-    radar_animation_policy.h
-    radar_tag_layout_policy.h
     runway_overlay.h
     status_screens.h
   services/
     wifi_setup.h
     radar_location.h
     adsb_client.h
-    aircraft_motion.h
-    route_fetcher.h
 data/
   ui_font.vlw              — embedded smooth UI font (Noto Sans Bold)
 scripts/
-  build_airports.py
+  build_large_airports.py
 src/
   main.cpp
   data/
-    airports_data.cpp
+    large_airports_data.cpp
   hardware/
   ui/
   services/

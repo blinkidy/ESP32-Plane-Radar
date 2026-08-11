@@ -8,11 +8,8 @@
 #include "config.h"
 #include "hardware/display.h"
 #include "services/adsb_client.h"
-#include "services/net_session.h"
 #include "services/radar_location.h"
-#include "services/route_fetcher.h"
 #include "services/wifi_setup.h"
-#include "ui/radar_animation_policy.h"
 #include "ui/radar_display.h"
 #include "ui/radar_range.h"
 #include "ui/status_screens.h"
@@ -23,7 +20,6 @@ bool g_radar_visible = false;
 unsigned long g_wifi_down_since = 0;
 unsigned long g_last_reconnect_ms = 0;
 unsigned long g_last_adsb_fetch_ms = 0;
-unsigned long g_last_animation_refresh_ms = 0;
 
 void showRadarIfConnected() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -31,7 +27,6 @@ void showRadarIfConnected() {
     return;
   }
   ui::radarDisplayDraw();
-  g_last_animation_refresh_ms = millis();
   g_radar_visible = true;
 }
 
@@ -44,37 +39,7 @@ void onRangeTap() {
 
   if (g_radar_visible && WiFi.status() == WL_CONNECTED) {
     ui::radarDisplayDraw();
-    g_last_animation_refresh_ms = millis();
   }
-}
-
-/**
- * Advance the sweep and the dead-reckoned traffic between ADS-B polls.
- *
- * Also runs from the fetch poll hook, so the sweep keeps turning through the
- * seconds-long HTTPS request instead of freezing once per cycle.
- */
-void serviceRadarAnimation() {
-  if (!g_radar_visible || WiFi.status() != WL_CONNECTED ||
-      !ui::radarDisplayCanAnimate()) {
-    return;
-  }
-  if (!ui::radar::animationNeeded(ui::radar::showSweep(),
-                                  services::adsb::aircraftCount())) {
-    return;
-  }
-
-  const unsigned long now_ms = millis();
-  if (now_ms - g_last_animation_refresh_ms < ui::radar::kAnimationIntervalMs) {
-    return;
-  }
-  g_last_animation_refresh_ms = now_ms;
-  ui::radarDisplayRefreshAircraft();
-}
-
-void pollNetwork() {
-  wifiLoop();
-  serviceRadarAnimation();
 }
 
 void handleBootButton() {
@@ -92,7 +57,6 @@ void fetchAndDrawAircraft() {
     return;
   }
   ui::radarDisplayRefreshAircraft();
-  g_last_animation_refresh_ms = millis();
   handleBootButton();
 }
 
@@ -110,11 +74,8 @@ void setup() {
     statusScreenPortal();
   }
   services::location::init();
-  services::net::sessionInit();
   ui::radar::rangeInit();
-  services::adsb::setPollFn(pollNetwork);
-  // Task idles until WiFi is up, so it is safe to start before connecting.
-  services::route::init();
+  services::adsb::setPollFn(wifiLoop);
 
   if (wifiSetupConnect()) {
     showRadarIfConnected();
@@ -148,15 +109,9 @@ void loop() {
     g_wifi_down_since = 0;
     if (!g_radar_visible) {
       showRadarIfConnected();
-    } else if (millis() - g_last_adsb_fetch_ms >= config::kAdsbFetchIntervalMs &&
-               !services::net::sessionBusy()) {
-      // Skipping while a route lookup holds the radio leaves the fetch slot
-      // unconsumed, so the next iteration claims it as soon as that finishes.
-      // fetchUpdate() re-checks under the lock; this is only scheduling.
+    } else if (millis() - g_last_adsb_fetch_ms >= config::kAdsbFetchIntervalMs) {
       g_last_adsb_fetch_ms = millis();
       fetchAndDrawAircraft();
-    } else {
-      serviceRadarAnimation();
     }
   }
 
