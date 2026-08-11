@@ -441,6 +441,30 @@ struct TagPlacement {
   bool tag_on_right;
 };
 
+int tagPlacementInkScore(const TagPlacement& placement) {
+  // The frame already contains the grid, runways, trails, vectors, and aircraft
+  // symbols. Prefer the candidate whose footprint covers the fewest drawn
+  // pixels, rather than always putting the tag on a fixed side of the target.
+  const uint32_t background = s_draw->readPixel(0, 0);
+  int score = 0;
+  for (int y = placement.top; y < placement.bottom; y += 2) {
+    for (int x = placement.left; x < placement.right; x += 2) {
+      if (s_draw->readPixel(x, y) != background) {
+        ++score;
+      }
+    }
+  }
+  return score;
+}
+
+TagPlacement makeTagPlacement(int left, int top, int block_w, int block_h,
+                              bool align_left) {
+  left = std::max(1, std::min(left, radar::kSize - block_w - 1));
+  top = std::max(1, std::min(top, radar::kSize - block_h - 1));
+  return {align_left ? left : left + block_w, top, left, left + block_w,
+          top + block_h, align_left};
+}
+
 TagPlacement placeAircraftTag(int x, int y,
                               const services::adsb::Aircraft& plane) {
   initTagLabelMetrics();
@@ -449,24 +473,42 @@ TagPlacement placeAircraftTag(int x, int y,
   const int line_h = s_draw->fontHeight();
   const int block_w = measureTagBlockWidth(plane);
   const int block_h = line_h * 4;
-  int top = y - block_h / 2;
-
   const int symbol_half =
       radar::kAircraftNoseLenPx + radar::kAircraftTailHalfPx;
-  // West (left): tag toward center on the right; east (right): tag on the left.
-  const bool tag_on_right = x < radar::kCenterX;
-  int anchor_x = 0;
-  if (tag_on_right) {
-    anchor_x = x + symbol_half + radar::kAircraftLabelGapPx;
-    anchor_x = std::min(anchor_x, radar::kSize - block_w - 1);
+  const int gap = symbol_half + radar::kAircraftLabelGapPx;
+
+  // Try all nearby sides and corners. The first two retain the old preference
+  // for placing labels toward the center and therefore win equal-score ties.
+  TagPlacement candidates[8];
+  size_t candidate_count = 0;
+  const auto add_candidate = [&](int left, int top, bool align_left) {
+    candidates[candidate_count++] =
+        makeTagPlacement(left, top, block_w, block_h, align_left);
+  };
+  if (x < radar::kCenterX) {
+    add_candidate(x + gap, y - block_h / 2, true);
+    add_candidate(x - gap - block_w, y - block_h / 2, false);
   } else {
-    anchor_x = x - symbol_half - radar::kAircraftLabelGapPx;
-    anchor_x = std::max(anchor_x, block_w + 1);
+    add_candidate(x - gap - block_w, y - block_h / 2, false);
+    add_candidate(x + gap, y - block_h / 2, true);
   }
-  top = std::max(1, std::min(top, radar::kSize - block_h - 1));
-  const int left = tag_on_right ? anchor_x : anchor_x - block_w;
-  return {anchor_x, top, left, left + block_w, top + block_h,
-          tag_on_right};
+  add_candidate(x - block_w / 2, y - gap - block_h, true);
+  add_candidate(x - block_w / 2, y + gap, true);
+  add_candidate(x + gap, y - gap - block_h, true);
+  add_candidate(x - gap - block_w, y - gap - block_h, false);
+  add_candidate(x + gap, y + gap, true);
+  add_candidate(x - gap - block_w, y + gap, false);
+
+  size_t best = 0;
+  int best_score = tagPlacementInkScore(candidates[0]);
+  for (size_t i = 1; i < candidate_count; ++i) {
+    const int score = tagPlacementInkScore(candidates[i]);
+    if (score < best_score) {
+      best = i;
+      best_score = score;
+    }
+  }
+  return candidates[best];
 }
 
 bool tagPlacementsTouch(const TagPlacement& a, const TagPlacement& b) {
