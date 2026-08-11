@@ -58,7 +58,7 @@ int s_scale_label_h = 0;
 lgfx::LovyanGFX* s_draw = &tft;
 LGFX_Sprite s_frame(&tft);
 bool s_frame_ready = false;
-bool s_has_tag_collisions = false;
+bool s_fast_tag_placement = false;
 
 class DrawScope {
  public:
@@ -447,13 +447,14 @@ bool tagPlacementsTouch(const TagPlacement& a, const TagPlacement& b);
 
 constexpr int kRunwayTagOverlapPenalty = 10000;
 constexpr int kOtherTagOverlapPenalty = 1000000;
+constexpr int kDistantTagPenalty = 100000000;
 
 int tagPlacementInkScore(const TagPlacement& placement) {
-  // The physical panel has no MISO connection, so reading it cannot provide a
-  // useful occupancy map and would turn every sample into a slow SPI
-  // transaction. Returning the same score for every candidate preserves the
-  // original center-facing placement through the candidate-order tie-breaker.
-  if (s_draw == &tft) {
+  // The physical panel has no MISO connection, and detailed framebuffer
+  // sampling is deliberately disabled on busy scopes. Returning the same score
+  // preserves the center-facing tie-breaker while geometric collision checks
+  // still keep tags away from runways and one another.
+  if (s_draw == &tft || s_fast_tag_placement) {
     return 0;
   }
 
@@ -462,8 +463,11 @@ int tagPlacementInkScore(const TagPlacement& placement) {
   // pixels, rather than always putting the tag on a fixed side of the target.
   const uint32_t background = s_draw->readPixel(0, 0);
   int score = 0;
-  for (int y = placement.top; y < placement.bottom; y += 2) {
-    for (int x = placement.left; x < placement.right; x += 2) {
+  // Runway and tag intersections are checked geometrically below, so a coarse
+  // sample is enough for general grid/trail avoidance and substantially cuts
+  // work on busy, zoomed-out scopes.
+  for (int y = placement.top; y < placement.bottom; y += 4) {
+    for (int x = placement.left; x < placement.right; x += 4) {
       if (s_draw->readPixel(x, y) != background) {
         ++score;
       }
@@ -558,6 +562,16 @@ TagPlacement placeAircraftTag(int x, int y,
   int best_score = 0;
   for (size_t i = 0; i < candidate_count; ++i) {
     int score = tagPlacementInkScore(candidates[i]);
+    const int nearest_x =
+        std::max(candidates[i].left, std::min(x, candidates[i].right));
+    const int nearest_y =
+        std::max(candidates[i].top, std::min(y, candidates[i].bottom));
+    const int tag_dx = x - nearest_x;
+    const int tag_dy = y - nearest_y;
+    const int max_distance = radar::kAircraftTagMaxDistancePx;
+    if (tag_dx * tag_dx + tag_dy * tag_dy > max_distance * max_distance) {
+      score += kDistantTagPenalty;
+    }
     if (runway::tagRectOverlapsRunway(candidates[i].left, candidates[i].top,
                                       candidates[i].right,
                                       candidates[i].bottom)) {
@@ -722,6 +736,11 @@ void drawAircraft() {
   }
 
   sortDrawItemsFarFirst(items, draw_count);
+  // Framebuffer sampling scales with aircraft count, candidate count, and tag
+  // area. On busy scopes retain the inexpensive geometric runway/tag checks but
+  // skip the cosmetic grid/trail sampling that otherwise causes long stalls.
+  constexpr size_t kDetailedPlacementAircraftLimit = 16;
+  s_fast_tag_placement = draw_count > kDetailedPlacementAircraftLimit;
   for (size_t d = 0; d < draw_count; ++d) {
     drawHistoryTrail(planes[items[d].index]);
   }
@@ -757,11 +776,6 @@ void drawAircraft() {
       }
     }
   }
-  s_has_tag_collisions = false;
-  for (size_t d = 0; d < draw_count; ++d) {
-    s_has_tag_collisions = s_has_tag_collisions || collides[d];
-  }
-
   const size_t phase = millis() / radar::kAircraftTagPagePeriodMs;
   bool visible[services::adsb::kMaxAircraft] = {};
   // Page each collision component independently. Within a component, greedily
@@ -815,11 +829,16 @@ void drawAircraft() {
   for (size_t d = 0; d < draw_count; ++d) {
     if (visible[d] && collides[d] && pulse_on) {
       const size_t i = items[d].index;
-      const int glow_r = radar::kAircraftNoseLenPx + 3;
-      s_draw->drawCircle(items[d].x, items[d].y, glow_r,
-                         radar::kColorAircraft);
-      s_draw->drawCircle(items[d].x, items[d].y, glow_r + 1,
-                         radar::kColorAircraft);
+      // Build a thicker red silhouette around the normal symbol. This reads as
+      // a red glow without introducing the white circles used by trail points.
+      drawHeadingTriangle(items[d].x - 1, items[d].y, planes[i].nose_deg,
+                          radar::kColorAircraft);
+      drawHeadingTriangle(items[d].x + 1, items[d].y, planes[i].nose_deg,
+                          radar::kColorAircraft);
+      drawHeadingTriangle(items[d].x, items[d].y - 1, planes[i].nose_deg,
+                          radar::kColorAircraft);
+      drawHeadingTriangle(items[d].x, items[d].y + 1, planes[i].nose_deg,
+                          radar::kColorAircraft);
       drawHeadingTriangle(items[d].x, items[d].y, planes[i].nose_deg,
                           radar::kColorAircraft);
     }
@@ -1001,7 +1020,5 @@ void radarDisplayRefreshAircraft() {
 
   radarDisplayDraw();
 }
-
-bool radarDisplayNeedsAnimation() { return s_has_tag_collisions; }
 
 }  // namespace ui
