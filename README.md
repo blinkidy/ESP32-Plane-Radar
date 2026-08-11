@@ -17,7 +17,7 @@ After Wi‑Fi is saved, the device reconnects automatically; the radar runs in t
 
 | Action | Effect |
 |--------|--------|
-| **Short tap** | Cycle range preset (5 → 10 → 15 → 25 km); saved to flash |
+| **Short tap** | Cycle range preset (5 km → 4 mi → 10 km → 15 km → 25 km); saved to flash |
 | **Hold 3 s** | Clear Wi‑Fi, location, and units; reboot into setup portal |
 
 During setup you can also hold BOOT at power-on to force a credential reset (same as the long press).
@@ -47,6 +47,17 @@ The same portal runs on the setup AP and on the device’s LAN IP while connecte
 
 After a reset, the device reboots and shows the setup screen immediately (no “Connecting” loop on stale credentials).
 
+### Private build-time Wi-Fi (optional)
+
+For a personal firmware build that reconnects even after flashing without saved
+NVS settings, copy `include/local_wifi_secrets.h.example` to
+`include/local_wifi_secrets.h` and fill in its SSID and password. The real
+secrets file is ignored by Git, so it is compiled only into firmware built on
+that machine and is not included in GitHub source, CI artifacts, or releases.
+
+Do not put credentials in `config.h`, `platformio.ini`, or the example file.
+Public/release builds continue to use the normal Wi-Fi setup portal.
+
 ## Radar display
 
 ### Grid
@@ -62,6 +73,7 @@ Layout and colors: `include/ui/radar_theme.h`.
 | Ring 3 label | Outer radius (aircraft scale) |
 |------------|-------------------------------|
 | 5 km / 3 mi | ~6.7 km |
+| ~6 km / 4 mi | ~8.6 km |
 | 10 km / 6 mi | ~13.3 km (default) |
 | 15 km / 9 mi | ~20 km |
 | 25 km / 16 mi | ~33.3 km |

@@ -18,6 +18,13 @@
 #include "ui/radar_range.h"
 #include "ui/status_screens.h"
 
+#if __has_include("local_wifi_secrets.h")
+#include "local_wifi_secrets.h"
+#define PLANE_RADAR_HAS_LOCAL_WIFI 1
+#else
+#define PLANE_RADAR_HAS_LOCAL_WIFI 0
+#endif
+
 portMUX_TYPE s_boot_mux = portMUX_INITIALIZER_UNLOCKED;
 volatile bool s_boot_tap_pending = false;
 volatile bool s_boot_is_down = false;
@@ -329,6 +336,19 @@ bool connectSavedNetwork(bool show_ui) {
   return tryConnectWithUi(ssid, pass, show_ui);
 }
 
+bool connectLocalNetwork(bool show_ui) {
+#if PLANE_RADAR_HAS_LOCAL_WIFI
+  if (local_wifi::kSsid[0] == '\0') {
+    return false;
+  }
+  Serial.println("Trying private build-time WiFi...");
+  return tryConnectWithUi(local_wifi::kSsid, local_wifi::kPassword, show_ui);
+#else
+  (void)show_ui;
+  return false;
+#endif
+}
+
 bool openConfigPortal() {
   stopLanWebPortal();
   WiFi.disconnect(true);
@@ -466,6 +486,13 @@ bool wifiSetupConnect() {
   }
 
   if (storedWifiCredentials() && connectSavedNetwork(true)) {
+    WiFi.setAutoReconnect(true);
+    Serial.printf("Connected: %s  IP %s\n", WiFi.SSID().c_str(),
+                  WiFi.localIP().toString().c_str());
+    return true;
+  }
+
+  if (connectLocalNetwork(true)) {
     WiFi.setAutoReconnect(true);
     Serial.printf("Connected: %s  IP %s\n", WiFi.SSID().c_str(),
                   WiFi.localIP().toString().c_str());
