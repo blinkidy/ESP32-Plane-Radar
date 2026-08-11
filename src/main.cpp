@@ -57,6 +57,9 @@ void fetchAndDrawAircraft() {
     return;
   }
   ui::radarDisplayRefreshAircraft();
+  if (services::adsb::fetchPendingRoute()) {
+    ui::radarDisplayRefreshAircraft();
+  }
   handleBootButton();
 }
 

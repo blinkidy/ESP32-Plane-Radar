@@ -78,7 +78,8 @@ Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
 ### Aircraft
 
 - **Inside the outer ring** — red heading triangle, magenta speed vector
-  (clipped at the ring), and callsign / type / altitude / ground-speed tags
+  (clipped at the ring), and callsign / type / route / altitude / ground-speed
+  tags; routes prefer IATA codes such as `LAX-PHX`
 - **Outside the ring** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate past the ring)
 - **Tags** — placed toward the **center**: west (left) → tag on the **right** of the symbol; east (right) → tag on the **left**
 

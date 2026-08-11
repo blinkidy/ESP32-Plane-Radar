@@ -14,6 +14,7 @@ namespace services::adsb {
 namespace {
 
 constexpr char kApiBase[] = "https://opendata.adsb.fi/api/v3/lat/";
+constexpr char kRouteApiBase[] = "https://api.adsbdb.com/v0/callsign/";
 constexpr float kKmPerNm = 1.852f;
 constexpr int kConnectAttemptMs = 200;
 constexpr unsigned long kRequestTimeoutMs = 10000;
@@ -21,6 +22,15 @@ constexpr unsigned long kRequestTimeoutMs = 10000;
 Aircraft s_aircraft[kMaxAircraft];
 size_t s_aircraft_count = 0;
 PollFn s_poll_fn = nullptr;
+
+constexpr size_t kRouteCacheSize = 48;
+struct RouteCacheEntry {
+  char callsign[9];
+  char route[12];
+  bool used;
+};
+RouteCacheEntry s_route_cache[kRouteCacheSize];
+size_t s_route_replace_index = 0;
 
 void pollNetwork() {
   if (s_poll_fn != nullptr) {
@@ -159,6 +169,62 @@ void copyJsonStringTrimmed(const JsonObject& obj, const char* key, char* out,
   out[n] = '\0';
 }
 
+RouteCacheEntry* findRoute(const char* callsign) {
+  for (size_t i = 0; i < kRouteCacheSize; ++i) {
+    if (s_route_cache[i].used &&
+        strcmp(s_route_cache[i].callsign, callsign) == 0) {
+      return &s_route_cache[i];
+    }
+  }
+  return nullptr;
+}
+
+const char* airportCode(JsonObjectConst airport) {
+  if (airport["iata_code"].is<const char*>()) {
+    const char* iata = airport["iata_code"].as<const char*>();
+    if (iata != nullptr && iata[0] != '\0') {
+      return iata;
+    }
+  }
+  if (airport["icao_code"].is<const char*>()) {
+    const char* icao = airport["icao_code"].as<const char*>();
+    if (icao != nullptr && icao[0] != '\0') {
+      return icao;
+    }
+  }
+  return nullptr;
+}
+
+void parseRoute(const String& payload, char* out, size_t out_len) {
+  out[0] = '\0';
+  JsonDocument doc;
+  if (deserializeJson(doc, payload) != DeserializationError::Ok) {
+    return;
+  }
+  JsonObjectConst route =
+      doc["response"]["flightroute"].as<JsonObjectConst>();
+  const char* origin =
+      airportCode(route["origin"].as<JsonObjectConst>());
+  const char* destination =
+      airportCode(route["destination"].as<JsonObjectConst>());
+  if (origin != nullptr && destination != nullptr) {
+    snprintf(out, out_len, "%s-%s", origin, destination);
+  }
+}
+
+void storeRoute(const char* callsign, const char* route) {
+  RouteCacheEntry* entry = findRoute(callsign);
+  if (entry == nullptr) {
+    entry = &s_route_cache[s_route_replace_index];
+    s_route_replace_index = (s_route_replace_index + 1) % kRouteCacheSize;
+  }
+  strncpy(entry->callsign, callsign, sizeof(entry->callsign) - 1);
+  entry->callsign[sizeof(entry->callsign) - 1] = '\0';
+  strncpy(entry->route, route, sizeof(entry->route) - 1);
+  entry->route[sizeof(entry->route) - 1] = '\0';
+  entry->used = true;
+}
+
 void formatAltitudeTag(const JsonObject& plane, char* out, size_t out_len) {
   out[0] = '\0';
   if (out_len == 0) {
@@ -199,6 +265,12 @@ void fillTagFields(Aircraft* ac, const JsonObject& plane) {
   }
 
   copyJsonStringTrimmed(plane, "t", ac->type, sizeof(ac->type));
+  ac->route[0] = '\0';
+  RouteCacheEntry* cached = findRoute(ac->callsign);
+  if (cached != nullptr) {
+    strncpy(ac->route, cached->route, sizeof(ac->route) - 1);
+    ac->route[sizeof(ac->route) - 1] = '\0';
+  }
   formatAltitudeTag(plane, ac->alt, sizeof(ac->alt));
   formatGroundSpeedTag(plane, ac->speed, sizeof(ac->speed));
 }
@@ -283,6 +355,39 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   s_aircraft_count = n;
   Serial.printf("adsb: %u aircraft\n", static_cast<unsigned>(n));
   return true;
+}
+
+bool fetchPendingRoute() {
+  Aircraft* aircraft = nullptr;
+  for (size_t i = 0; i < s_aircraft_count; ++i) {
+    if (s_aircraft[i].callsign[0] != '\0' &&
+        findRoute(s_aircraft[i].callsign) == nullptr) {
+      aircraft = &s_aircraft[i];
+      break;
+    }
+  }
+  if (aircraft == nullptr) {
+    return false;
+  }
+
+  String url = kRouteApiBase;
+  url += aircraft->callsign;
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  char route[sizeof(aircraft->route)];
+  route[0] = '\0';
+  if (http.begin(client, url)) {
+    http.setTimeout(4000);
+    if (http.GET() == HTTP_CODE_OK) {
+      parseRoute(http.getString(), route, sizeof(route));
+    }
+    http.end();
+  }
+  storeRoute(aircraft->callsign, route);
+  strncpy(aircraft->route, route, sizeof(aircraft->route) - 1);
+  aircraft->route[sizeof(aircraft->route) - 1] = '\0';
+  return route[0] != '\0';
 }
 
 }  // namespace services::adsb
