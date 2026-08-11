@@ -473,6 +473,15 @@ int measureTagBlockWidth(const services::adsb::Aircraft& plane) {
   return max_w;
 }
 
+int tagBlockLineCount(const services::adsb::Aircraft& plane) {
+  int lines = 0;
+  lines += plane.callsign[0] != '\0';
+  lines += plane.type[0] != '\0';
+  lines += plane.alt[0] != '\0';
+  lines += plane.speed[0] != '\0';
+  return std::max(1, lines);
+}
+
 struct TagPlacement {
   int anchor_x;
   int top;
@@ -567,7 +576,7 @@ TagPlacement placeAircraftTag(int x, int y,
 
   const int line_h = s_draw->fontHeight();
   const int block_w = measureTagBlockWidth(plane);
-  const int block_h = line_h * 4;
+  const int block_h = line_h * tagBlockLineCount(plane);
   const int symbol_half =
       radar::kAircraftNoseLenPx + radar::kAircraftTailHalfPx;
   const int gap = symbol_half + radar::kAircraftLabelGapPx;
@@ -734,20 +743,20 @@ void drawAircraftTag(const services::adsb::Aircraft& plane,
                                         : radar::kColorLabel,
                          radar::kColorBackground);
     s_draw->drawString(plane.callsign, anchor_x, ly);
+    ly += line_h;
   }
-  ly += line_h;
 
   if (plane.type[0] != '\0') {
     s_draw->setTextColor(radar::kColorTagType, radar::kColorBackground);
     s_draw->drawString(plane.type, anchor_x, ly);
+    ly += line_h;
   }
-  ly += line_h;
 
   if (plane.alt[0] != '\0') {
     s_draw->setTextColor(radar::kColorTagAltitude, radar::kColorBackground);
     s_draw->drawString(plane.alt, anchor_x, ly);
+    ly += line_h;
   }
-  ly += line_h;
 
   if (plane.speed[0] != '\0') {
     s_draw->setTextColor(radar::kColorTagSpeed, radar::kColorBackground);
