@@ -952,18 +952,10 @@ void drawAircraft() {
   for (size_t d = 0; d < draw_count; ++d) {
     if (visible[d] && collides[d] && pulse_on) {
       const size_t i = items[d].index;
-      // Build a thicker silhouette in the aircraft-type tag color around the
-      // normal red symbol. The contrasting edge is much easier to see.
-      drawHeadingTriangle(items[d].x - 1, items[d].y, planes[i].nose_deg,
-                          radar::kColorTagType);
-      drawHeadingTriangle(items[d].x + 1, items[d].y, planes[i].nose_deg,
-                          radar::kColorTagType);
-      drawHeadingTriangle(items[d].x, items[d].y - 1, planes[i].nose_deg,
-                          radar::kColorTagType);
-      drawHeadingTriangle(items[d].x, items[d].y + 1, planes[i].nose_deg,
-                          radar::kColorTagType);
+      // Pulse the entire selected aircraft in the aircraft-type blue instead
+      // of using a subtle outline around the normal red symbol.
       drawHeadingTriangle(items[d].x, items[d].y, planes[i].nose_deg,
-                          radar::kColorAircraft);
+                          radar::kColorTagType);
     }
   }
 
