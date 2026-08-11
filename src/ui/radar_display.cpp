@@ -826,8 +826,11 @@ void drawAircraft() {
   const size_t n = services::adsb::aircraftCount();
   const services::adsb::Aircraft* planes = services::adsb::aircraftList();
 
-  AircraftDrawItem items[services::adsb::kMaxAircraft];
-  BeyondDotDrawItem dots[services::adsb::kMaxAircraft];
+  // These fixed-size workspaces live in BSS rather than the ESP32-C3's small
+  // Arduino loop-task stack. Only the entries below draw_count/dot_count are
+  // used during a frame.
+  static AircraftDrawItem items[services::adsb::kMaxAircraft];
+  static BeyondDotDrawItem dots[services::adsb::kMaxAircraft];
   size_t draw_count = 0;
   size_t dot_count = 0;
 
@@ -888,11 +891,11 @@ void drawAircraft() {
     drawHeadingTriangle(x, y, planes[i].nose_deg, aircraft_color);
   }
 
-  TagPlacement placements[services::adsb::kMaxAircraft];
-  TagPlacement placed[services::adsb::kMaxAircraft];
-  int aircraft_x[services::adsb::kMaxAircraft];
-  int aircraft_y[services::adsb::kMaxAircraft];
-  size_t placement_order[services::adsb::kMaxAircraft];
+  static TagPlacement placements[services::adsb::kMaxAircraft];
+  static TagPlacement placed[services::adsb::kMaxAircraft];
+  static int aircraft_x[services::adsb::kMaxAircraft];
+  static int aircraft_y[services::adsb::kMaxAircraft];
+  static size_t placement_order[services::adsb::kMaxAircraft];
   for (size_t d = 0; d < draw_count; ++d) {
     aircraft_x[d] = items[d].x;
     aircraft_y[d] = items[d].y;
@@ -918,9 +921,10 @@ void drawAircraft() {
     placed[order] = placements[d];
   }
 
-  bool collides[services::adsb::kMaxAircraft] = {};
-  size_t parents[services::adsb::kMaxAircraft];
+  static bool collides[services::adsb::kMaxAircraft];
+  static size_t parents[services::adsb::kMaxAircraft];
   for (size_t d = 0; d < draw_count; ++d) {
+    collides[d] = false;
     parents[d] = d;
   }
   for (size_t a = 0; a < draw_count; ++a) {
@@ -933,7 +937,10 @@ void drawAircraft() {
     }
   }
   const size_t phase = millis() / radar::kAircraftTagPagePeriodMs;
-  bool visible[services::adsb::kMaxAircraft] = {};
+  static bool visible[services::adsb::kMaxAircraft];
+  for (size_t d = 0; d < draw_count; ++d) {
+    visible[d] = false;
+  }
   // Page each collision component independently. Within a component, greedily
   // show every compatible tag, so A and C can both be visible when only B
   // overlaps them. A singleton component is therefore visible immediately.
@@ -942,7 +949,7 @@ void drawAircraft() {
     if (tagGroupRoot(parents, root_candidate) != root_candidate) {
       continue;
     }
-    size_t members[services::adsb::kMaxAircraft];
+    static size_t members[services::adsb::kMaxAircraft];
     size_t member_count = 0;
     for (size_t d = 0; d < draw_count; ++d) {
       if (tagGroupRoot(parents, d) == root_candidate) {
