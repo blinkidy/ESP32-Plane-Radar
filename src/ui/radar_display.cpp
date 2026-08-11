@@ -212,6 +212,7 @@ void initSweepRamp() {
   s_sweep_ramp_ready = true;
 
   const float last = static_cast<float>(kSweepSteps - 1);
+  constexpr float kSweepBrightness = 0.75f;
   for (size_t i = 0; i < kSweepSteps; ++i) {
     const float t = static_cast<float>(i) / last;
     const float decay = (1.0f - t) * (1.0f - t);
@@ -220,12 +221,15 @@ void initSweepRamp() {
     const uint8_t r = lerp8(radar::kSweepTrailR, radar::kSweepEdgeR, edge_mix);
     const uint8_t g = lerp8(radar::kSweepTrailG, radar::kSweepEdgeG, edge_mix);
     const uint8_t b = lerp8(radar::kSweepTrailB, radar::kSweepEdgeB, edge_mix);
-    s_sweep_ramp[i] = tft.color565(lerp8(radar::kBgR, r, decay),
-                                   lerp8(radar::kBgG, g, decay),
-                                   lerp8(radar::kBgB, b, decay));
+    const float dimmed_decay = decay * kSweepBrightness;
+    s_sweep_ramp[i] = tft.color565(lerp8(radar::kBgR, r, dimmed_decay),
+                                   lerp8(radar::kBgG, g, dimmed_decay),
+                                   lerp8(radar::kBgB, b, dimmed_decay));
   }
-  s_sweep_edge =
-      tft.color565(radar::kSweepEdgeR, radar::kSweepEdgeG, radar::kSweepEdgeB);
+  s_sweep_edge = tft.color565(
+      lerp8(radar::kBgR, radar::kSweepEdgeR, kSweepBrightness),
+      lerp8(radar::kBgG, radar::kSweepEdgeG, kSweepBrightness),
+      lerp8(radar::kBgB, radar::kSweepEdgeB, kSweepBrightness));
 }
 
 void initPalette() {

@@ -16,8 +16,6 @@ namespace services::adsb::motion {
 
 /** Cross-fade from the last displayed position into the new fix. */
 constexpr unsigned long kBlendDurationMs = 1200UL;
-/** Stop extrapolating a stale track rather than flying it off the scope. */
-constexpr unsigned long kMaxPredictionMs = 10000UL;
 constexpr float kKnotsToMetersPerSecond = 0.514444f;
 constexpr float kMetersPerDegreeLatitude = 111320.0f;
 constexpr float kDegToRad = 0.01745329252f;
@@ -36,10 +34,6 @@ struct AircraftTrack {
 /** Unsigned wrap-safe: millis() rollover yields the correct elapsed time. */
 constexpr unsigned long elapsedMs(unsigned long now_ms, unsigned long then_ms) {
   return now_ms - then_ms;
-}
-
-constexpr unsigned long predictionElapsedMs(unsigned long elapsed_ms) {
-  return elapsed_ms < kMaxPredictionMs ? elapsed_ms : kMaxPredictionMs;
 }
 
 constexpr float clamp01(float value) {
@@ -71,7 +65,7 @@ inline Position predictPosition(const Aircraft& aircraft,
 
   const float distance_m =
       aircraft.gs_knots * kKnotsToMetersPerSecond *
-      (static_cast<float>(predictionElapsedMs(elapsed_ms)) / 1000.0f);
+      (static_cast<float>(elapsed_ms) / 1000.0f);
   const float track_rad = aircraft.track_deg * kDegToRad;
   const float north_m = distance_m * cosf(track_rad);
   const float east_m = distance_m * sinf(track_rad);

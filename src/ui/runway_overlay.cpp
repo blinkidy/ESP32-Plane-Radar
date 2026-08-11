@@ -21,7 +21,6 @@ namespace radar_fonts = lgfx::v1::fonts;
 namespace ui::runway {
 namespace {
 
-constexpr size_t kMaxAirportLabels = 12;
 constexpr size_t kMaxRunwayLabels = 24;
 /** Per-airport working set; airports with more runways just draw the longest. */
 constexpr size_t kMaxRunwaysPerAirport = 10;
@@ -32,16 +31,12 @@ struct ScreenLabel {
   int16_t y;
 };
 
-ScreenLabel s_airport_labels[kMaxAirportLabels];
-size_t s_airport_label_count = 0;
 ScreenLabel s_runway_labels[kMaxRunwayLabels];
 size_t s_runway_label_count = 0;
 
 bool s_label_style_ready = false;
 bool s_label_use_vlw = false;
-float s_icao_vlw_size = 0.38f;
 float s_ident_vlw_size = 0.26f;
-const lgfx::GFXfont* s_icao_gfx = &radar_fonts::FreeSansBold12pt7b;
 const lgfx::GFXfont* s_ident_gfx = &radar_fonts::FreeSansBold9pt7b;
 
 int measureVlwHeight(lgfx::LGFXBase& gfx, float size) {
@@ -70,23 +65,13 @@ void initLabelStyle(lgfx::LGFXBase& gfx) {
 
   if (displayFontIsSmooth()) {
     s_label_use_vlw = true;
-    s_icao_vlw_size = findVlwSizeForHeight(gfx, radar::kRunwayLabelHeightPx);
     s_ident_vlw_size =
         findVlwSizeForHeight(gfx, radar::kRunwayIdentLabelHeightPx);
   } else {
-    s_icao_gfx = &radar_fonts::FreeSansBold12pt7b;
     s_ident_gfx = &radar_fonts::FreeSansBold9pt7b;
     s_label_use_vlw = false;
   }
   s_label_style_ready = true;
-}
-
-void applyIcaoStyle(lgfx::LGFXBase& gfx) {
-  if (s_label_use_vlw) {
-    displayFontSetSmoothSize(gfx, s_icao_vlw_size);
-  } else {
-    displayFontSetBitmap(gfx, s_icao_gfx);
-  }
 }
 
 void applyIdentStyle(lgfx::LGFXBase& gfx) {
@@ -165,21 +150,6 @@ bool segmentIntersectsDisc(int x0, int y0, int x1, int y1) {
   const float t0 = (-static_cast<float>(b) - disc) * inv2a;
   const float t1 = (-static_cast<float>(b) + disc) * inv2a;
   return (t0 >= 0.0f && t0 <= 1.0f) || (t1 >= 0.0f && t1 <= 1.0f);
-}
-
-void clipPointOntoOuterRing(int* x, int* y) {
-  const int cx = radar::kCenterX;
-  const int cy = radar::kCenterY;
-  const int r = radar::kGridOuterRadius;
-  const int dx = *x - cx;
-  const int dy = *y - cy;
-  const int d_sq = dx * dx + dy * dy;
-  if (d_sq <= r * r || d_sq == 0) {
-    return;
-  }
-  const float scale = static_cast<float>(r) / sqrtf(static_cast<float>(d_sq));
-  *x = cx + static_cast<int>(lroundf(static_cast<float>(dx) * scale));
-  *y = cy + static_cast<int>(lroundf(static_cast<float>(dy) * scale));
 }
 
 /** Leading digits of a designator: "12L" → 12, "04" → 4. -1 when absent. */
@@ -335,43 +305,6 @@ bool drawOneAirport(lgfx::LGFXBase& gfx, size_t first, size_t last) {
   return true;
 }
 
-void collectAirportLabel(const data::airports::Airport& ap) {
-  int ax = 0;
-  int ay = 0;
-  radar::latLonToScreen(e7ToDeg(ap.lat_e7), e7ToDeg(ap.lon_e7), &ax, &ay);
-  clipPointOntoOuterRing(&ax, &ay);
-
-  // Nudge the label away from the radar centre so it clears the runways.
-  const int dx = ax - radar::kCenterX;
-  const int dy = ay - radar::kCenterY;
-  const float len = sqrtf(static_cast<float>(dx * dx + dy * dy));
-  const int gap = radar::kRunwayLabelGapPx;
-  int lx = ax;
-  int ly = ay - gap;
-  if (len >= 1.0f) {
-    lx = ax + static_cast<int>(lroundf(static_cast<float>(dx) / len * gap));
-    ly = ay + static_cast<int>(lroundf(static_cast<float>(dy) / len * gap));
-  }
-  pushLabel(s_airport_labels, &s_airport_label_count, kMaxAirportLabels,
-            ap.ident, lx, ly);
-}
-
-void drawIcaoLabel(lgfx::LGFXBase& gfx, const ScreenLabel& label) {
-  const int tw = gfx.textWidth(label.text);
-  const int th = gfx.fontHeight();
-  constexpr int kPadX = 2;
-  constexpr int kPadY = 1;
-
-  gfx.setTextDatum(textdatum_t::bottom_center);
-  gfx.fillRect(label.x - tw / 2 - kPadX, label.y - th - kPadY, tw + kPadX * 2,
-               th + kPadY, radar::kColorBackground);
-  gfx.setTextColor(radar::kColorRunwayLabel, radar::kColorBackground);
-  // Drawn three times for a faux-bold that survives the dim teal on navy.
-  gfx.drawString(label.text, label.x - 1, label.y);
-  gfx.drawString(label.text, label.x + 1, label.y);
-  gfx.drawString(label.text, label.x, label.y);
-}
-
 void drawIdentLabel(lgfx::LGFXBase& gfx, const ScreenLabel& label) {
   const int tw = gfx.textWidth(label.text);
   const int th = gfx.fontHeight();
@@ -391,7 +324,6 @@ void drawAirportRunways(lgfx::LGFXBase& gfx) {
   displayFontEnsureLoaded(gfx);
   radar::projectionSync();
 
-  s_airport_label_count = 0;
   s_runway_label_count = 0;
 
   const float radius_km = radar::fetchRadiusKm();
@@ -409,14 +341,13 @@ void drawAirportRunways(lgfx::LGFXBase& gfx) {
 
     const auto& ap = data::airports::kAirports[ap_idx];
     if (radar::distSqKmFromCenter(e7ToDeg(ap.lat_e7), e7ToDeg(ap.lon_e7)) <=
-            radius_sq &&
-        drawOneAirport(gfx, i, end)) {
-      collectAirportLabel(ap);
+        radius_sq) {
+      drawOneAirport(gfx, i, end);
     }
     i = end;
   }
 
-  if (s_airport_label_count == 0 && s_runway_label_count == 0) {
+  if (s_runway_label_count == 0) {
     return;
   }
 
@@ -425,11 +356,6 @@ void drawAirportRunways(lgfx::LGFXBase& gfx) {
   applyIdentStyle(gfx);
   for (size_t n = 0; n < s_runway_label_count; ++n) {
     drawIdentLabel(gfx, s_runway_labels[n]);
-  }
-
-  applyIcaoStyle(gfx);
-  for (size_t n = 0; n < s_airport_label_count; ++n) {
-    drawIcaoLabel(gfx, s_airport_labels[n]);
   }
 }
 

@@ -27,8 +27,8 @@ constexpr size_t kQueueDepth = 12;
 /** Be a good citizen on a free public API. */
 constexpr unsigned long kMinRequestSpacingMs = 600UL;
 constexpr uint16_t kHttpTimeoutMs = 6000;
-/** The UI must never stall on the cache; a missed frame's route can wait. */
-constexpr TickType_t kCacheWaitTicks = pdMS_TO_TICKS(20);
+/** The renderer queries completed routes, so cache access must never wait. */
+constexpr TickType_t kCacheWaitTicks = 0;
 /** Bytes on ESP-IDF (not words). The mbedTLS handshake needs the headroom. */
 constexpr uint32_t kTaskStackBytes = 10240;
 

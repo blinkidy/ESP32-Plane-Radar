@@ -102,9 +102,10 @@ void testDeadReckoning() {
   assert(fabsf(dlon - 0.02213f) < 5e-4f);
   ++g_checks;
 
-  // Extrapolation is clamped, so a track that stops updating stops moving.
-  assert(displayPosition(t, 1000 + 60000).lon ==
-         displayPosition(t, 1000 + 600000).lon);
+  // A delayed network refresh must not visibly freeze every moving target.
+  // Keep projecting from the last good fix until a newer fix replaces it.
+  assert(displayPosition(t, 1000 + 600000).lon >
+         displayPosition(t, 1000 + 60000).lon);
   ++g_checks;
 
   // A stationary target never drifts.

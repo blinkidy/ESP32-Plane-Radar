@@ -279,6 +279,13 @@ size_t aircraftCount() { return s_aircraft_count; }
 const Aircraft* aircraftList(unsigned long now_ms, size_t* count) {
   for (size_t i = 0; i < s_aircraft_count; ++i) {
     s_display[i] = s_tracks[i].aircraft;
+    // Route lookups finish independently of ADS-B position polls. Hydrate a
+    // completed lookup directly into the display copy so origin/destination
+    // appears immediately, even when the next position request is delayed.
+    if (s_display[i].route[0] == '\0') {
+      services::route::getRoute(s_display[i].callsign, s_display[i].route,
+                                sizeof(s_display[i].route));
+    }
     const motion::Position position =
         motion::displayPosition(s_tracks[i], now_ms);
     s_display[i].lat = position.lat;

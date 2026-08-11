@@ -4,6 +4,7 @@
 #include <WiFiManager.h>
 
 #include <cstdio>
+#include <vector>
 
 #include <Preferences.h>
 #include <esp_system.h>
@@ -70,6 +71,15 @@ bool wifiLinkUp();
 constexpr int kCoordParamLen = 20;
 constexpr char kCoordInputAttrs[] =
     " type=\"number\" step=\"0.000001\"";
+
+constexpr char kPortalHead[] = R"(
+<style>
+:root{--accent:#32d36b;--panel:#101a2f;--ink:#ecf4ff}
+body{background:#050b18;color:var(--ink)}
+.wrap{max-width:560px}button,.btn,input[type=submit]{border-radius:8px}
+button,.btn,input[type=submit]{background:var(--accent);color:#06120a}
+input{background:var(--panel);color:var(--ink);border-color:#34445f}
+</style>)";
 
 WiFiManagerParameter s_param_lat("radar_lat", "Latitude (deg)", "0",
                                 kCoordParamLen, kCoordInputAttrs);
@@ -244,6 +254,11 @@ void ensureWifiManager() {
   s_wm.setAPStaticIPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
                            IPAddress(255, 255, 255, 0));
   s_wm.setHostname(config::kPortalHostname);
+  s_wm.setTitle("Plane Radar Advanced Setup");
+  s_wm.setCustomHeadElement(kPortalHead);
+  const std::vector<const char*> menu = {"wifi", "param", "info", "update",
+                                         "sep", "restart", "exit"};
+  s_wm.setMenu(menu);
   s_wm.setAPCallback(onConfigPortalApStarted);
   attachPortalParams(s_wm);
   s_wm_configured = true;
