@@ -13,9 +13,11 @@ namespace {
 
 constexpr char kPrefsNamespace[] = "planeradar";
 constexpr char kPrefsRangeKey[] = "rangeIdx";
+constexpr char kPrefsRangeVersionKey[] = "rangeVer";
 constexpr char kPrefsMilesKey[] = "useMiles";
 constexpr char kPrefsRunwaysKey[] = "showRwys";
-constexpr uint8_t kDefaultRangeIndex = 1;  // 10 km ring
+constexpr uint8_t kRangeLayoutVersion = 2;
+constexpr uint8_t kDefaultRangeIndex = 2;  // 10 km ring
 constexpr float kKmPerMile = 1.609344f;
 
 Preferences s_prefs;
@@ -28,6 +30,7 @@ void saveRangeIndex() {
     return;
   }
   s_prefs.putUChar(kPrefsRangeKey, s_range_index);
+  s_prefs.putUChar(kPrefsRangeVersionKey, kRangeLayoutVersion);
   s_prefs.end();
 }
 
@@ -65,12 +68,24 @@ void rangeInit() {
   if (!s_prefs.begin(kPrefsNamespace, true)) {
     return;
   }
-  const uint8_t saved = s_prefs.getUChar(kPrefsRangeKey, kDefaultRangeIndex);
-  s_range_index =
-      (saved < kRangePresetCount) ? saved : kDefaultRangeIndex;
+  const uint8_t saved = s_prefs.getUChar(kPrefsRangeKey, 0xFF);
+  const uint8_t version = s_prefs.getUChar(kPrefsRangeVersionKey, 1);
+  if (saved == 0xFF) {
+    s_range_index = kDefaultRangeIndex;
+  } else if (version < kRangeLayoutVersion && saved < 4) {
+    // Version 2 inserted 4 mi after 5 km. Shift the three old higher indices
+    // so existing devices keep the same selected physical range.
+    s_range_index = saved == 0 ? 0 : static_cast<uint8_t>(saved + 1);
+  } else {
+    s_range_index =
+        (saved < kRangePresetCount) ? saved : kDefaultRangeIndex;
+  }
   s_use_miles = s_prefs.getBool(kPrefsMilesKey, false);
   s_show_runways = s_prefs.getBool(kPrefsRunwaysKey, true);
   s_prefs.end();
+  if (version < kRangeLayoutVersion && saved != 0xFF) {
+    saveRangeIndex();
+  }
 }
 
 void rangeNext() {

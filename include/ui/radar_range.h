@@ -10,6 +10,7 @@ namespace ui::radar {
  *
  * Recommended for ADS-B on a 1.28″ display:
  *   5 km  — pattern / very local (airfield vicinity)
+ *   4 mi  — slightly wider local view
  *  10 km  — default; neighborhood spotting
  *  15 km  — wider local area
  *  25 km  — metro / regional picture
@@ -26,6 +27,7 @@ constexpr float kRing3ToOuterKm = 4.0f / 3.0f;
 
 constexpr RangePreset kRangePresets[] = {
     {5.0f, 5.0f * kRing3ToOuterKm},
+    {4.0f * 1.609344f, 4.0f * 1.609344f * kRing3ToOuterKm},
     {10.0f, 10.0f * kRing3ToOuterKm},
     {15.0f, 15.0f * kRing3ToOuterKm},
     {25.0f, 25.0f * kRing3ToOuterKm},
