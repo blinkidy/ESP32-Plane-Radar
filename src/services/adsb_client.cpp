@@ -148,6 +148,23 @@ bool readJsonFloat(const JsonObject& obj, const char* key, float* out) {
   return false;
 }
 
+float pickNoseHeading(const JsonObject& plane) {
+  float v = 0.0f;
+  if (readJsonFloat(plane, "true_heading", &v)) {
+    return v;
+  }
+  if (readJsonFloat(plane, "mag_heading", &v)) {
+    return v;
+  }
+  if (readJsonFloat(plane, "track", &v)) {
+    return v;
+  }
+  if (readJsonFloat(plane, "dir", &v)) {
+    return v;
+  }
+  return 0.0f;
+}
+
 float pickTrackHeading(const JsonObject& plane) {
   float v = 0.0f;
   if (readJsonFloat(plane, "track", &v)) {
@@ -356,12 +373,10 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
 
     s_incoming[n].lat = plane["lat"].as<float>();
     s_incoming[n].lon = plane["lon"].as<float>();
-    // ADS-B true/magnetic heading can remain stale for a minute or more while
-    // the ground track already reflects a turn. A PPI symbol should follow the
-    // path across the scope; the same fresh track also drives prediction.
-    const float track_deg = pickTrackHeading(plane);
-    s_incoming[n].nose_deg = track_deg;
-    s_incoming[n].track_deg = track_deg;
+    // Match upstream: aircraft attitude follows reported heading, while the
+    // motion vector and dead reckoning independently follow ground track.
+    s_incoming[n].nose_deg = pickNoseHeading(plane);
+    s_incoming[n].track_deg = pickTrackHeading(plane);
     s_incoming[n].gs_knots = pickGroundSpeed(plane);
     fillTagFields(&s_incoming[n], plane);
     ++n;
