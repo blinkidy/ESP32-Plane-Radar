@@ -5,18 +5,15 @@
 
 #include <ArduinoJson.h>
 
-#include <cmath>
 #include <cstring>
 
 #include "config.h"
-#include "data/large_airports.h"
 
 namespace services::adsb {
 
 namespace {
 
 constexpr char kApiBase[] = "https://opendata.adsb.fi/api/v3/lat/";
-constexpr char kRouteApiBase[] = "https://api.adsbdb.com/v0/callsign/";
 constexpr float kKmPerNm = 1.852f;
 constexpr int kConnectAttemptMs = 200;
 constexpr unsigned long kRequestTimeoutMs = 10000;
@@ -24,17 +21,6 @@ constexpr unsigned long kRequestTimeoutMs = 10000;
 Aircraft s_aircraft[kMaxAircraft];
 size_t s_aircraft_count = 0;
 PollFn s_poll_fn = nullptr;
-
-constexpr size_t kRouteCacheSize = 48;
-constexpr unsigned long kRouteCacheTtlMs = 5UL * 60UL * 1000UL;
-struct RouteCacheEntry {
-  char callsign[9];
-  char route[12];
-  unsigned long updated_ms;
-  bool used;
-};
-RouteCacheEntry s_route_cache[kRouteCacheSize];
-size_t s_route_replace_index = 0;
 
 void pollNetwork() {
   if (s_poll_fn != nullptr) {
@@ -151,6 +137,21 @@ float pickGroundSpeed(const JsonObject& plane) {
   return 0.0f;
 }
 
+float pickVerticalRate(const JsonObject& plane) {
+  float v = 0.0f;
+  if (readJsonFloat(plane, "baro_rate", &v) ||
+      readJsonFloat(plane, "geom_rate", &v)) {
+    return v;
+  }
+  return 0.0f;
+}
+
+bool isMilitary(const JsonObject& plane) {
+  // readsb/tar1090 database flags: bit 0 marks a military aircraft.
+  return plane["dbFlags"].is<unsigned>() &&
+         (plane["dbFlags"].as<unsigned>() & 1U) != 0;
+}
+
 bool isOnGround(const JsonObject& plane) {
   if (!plane["alt_baro"].is<const char*>()) {
     return false;
@@ -173,128 +174,6 @@ void copyJsonStringTrimmed(const JsonObject& obj, const char* key, char* out,
   out[n] = '\0';
 }
 
-RouteCacheEntry* findRouteEntry(const char* callsign) {
-  for (size_t i = 0; i < kRouteCacheSize; ++i) {
-    if (s_route_cache[i].used &&
-        strcmp(s_route_cache[i].callsign, callsign) == 0) {
-      return &s_route_cache[i];
-    }
-  }
-  return nullptr;
-}
-
-RouteCacheEntry* findFreshRoute(const char* callsign) {
-  RouteCacheEntry* entry = findRouteEntry(callsign);
-  if (entry == nullptr || millis() - entry->updated_ms >= kRouteCacheTtlMs) {
-    return nullptr;
-  }
-  return entry;
-}
-
-const char* airportCode(JsonObjectConst airport) {
-  if (airport["iata_code"].is<const char*>()) {
-    const char* iata = airport["iata_code"].as<const char*>();
-    if (iata != nullptr && iata[0] != '\0') {
-      return iata;
-    }
-  }
-  if (airport["icao_code"].is<const char*>()) {
-    const char* icao = airport["icao_code"].as<const char*>();
-    if (icao != nullptr && icao[0] != '\0') {
-      return icao;
-    }
-  }
-  return nullptr;
-}
-
-void copyAirportIcao(JsonObjectConst airport, char* out, size_t out_len) {
-  out[0] = '\0';
-  const char* icao = airport["icao_code"].as<const char*>();
-  if (icao != nullptr) {
-    strncpy(out, icao, out_len - 1);
-    out[out_len - 1] = '\0';
-  }
-}
-
-void parseRoute(const String& payload, const char* requested_callsign,
-                char* out, size_t out_len, char* origin_icao,
-                size_t origin_len, char* destination_icao,
-                size_t destination_len) {
-  out[0] = '\0';
-  origin_icao[0] = '\0';
-  destination_icao[0] = '\0';
-  JsonDocument doc;
-  if (deserializeJson(doc, payload) != DeserializationError::Ok) {
-    return;
-  }
-  JsonObjectConst route =
-      doc["response"]["flightroute"].as<JsonObjectConst>();
-  const char* response_callsign = route["callsign"].as<const char*>();
-  if (response_callsign == nullptr ||
-      strcmp(response_callsign, requested_callsign) != 0) {
-    return;
-  }
-  const JsonObjectConst origin_obj = route["origin"].as<JsonObjectConst>();
-  const JsonObjectConst destination_obj =
-      route["destination"].as<JsonObjectConst>();
-  const char* origin = airportCode(origin_obj);
-  const char* destination = airportCode(destination_obj);
-  if (origin != nullptr && destination != nullptr) {
-    snprintf(out, out_len, "%s-%s", origin, destination);
-    copyAirportIcao(origin_obj, origin_icao, origin_len);
-    copyAirportIcao(destination_obj, destination_icao, destination_len);
-  }
-}
-
-const data::large_airports::Airport* findAirport(const char* ident) {
-  for (size_t i = 0; i < data::large_airports::kAirportCount; ++i) {
-    if (strcmp(data::large_airports::kAirports[i].ident, ident) == 0) {
-      return &data::large_airports::kAirports[i];
-    }
-  }
-  return nullptr;
-}
-
-bool routeHeadsTowardDestination(const Aircraft& aircraft,
-                                 const char* destination_icao) {
-  const data::large_airports::Airport* destination =
-      findAirport(destination_icao);
-  if (destination == nullptr) {
-    return true;
-  }
-  constexpr float kE7ToDegrees = 1e-7f;
-  constexpr float kDegreesToRadians = 0.01745329252f;
-  const float dest_lat = destination->lat_e7 * kE7ToDegrees;
-  const float dest_lon = destination->lon_e7 * kE7ToDegrees;
-  const float east = (dest_lon - aircraft.lon) *
-                     cosf(aircraft.lat * kDegreesToRadians);
-  const float north = dest_lat - aircraft.lat;
-  const float distance = sqrtf(east * east + north * north);
-  if (distance < 0.01f) {
-    return true;
-  }
-  const float track = aircraft.track_deg * kDegreesToRadians;
-  const float alignment =
-      (sinf(track) * east + cosf(track) * north) / distance;
-  // Allow normal vectors, holds, and deviations, but reject a destination
-  // clearly behind the aircraft. This suppresses stale scheduled routes.
-  return alignment >= -0.25f;
-}
-
-void storeRoute(const char* callsign, const char* route) {
-  RouteCacheEntry* entry = findRouteEntry(callsign);
-  if (entry == nullptr) {
-    entry = &s_route_cache[s_route_replace_index];
-    s_route_replace_index = (s_route_replace_index + 1) % kRouteCacheSize;
-  }
-  strncpy(entry->callsign, callsign, sizeof(entry->callsign) - 1);
-  entry->callsign[sizeof(entry->callsign) - 1] = '\0';
-  strncpy(entry->route, route, sizeof(entry->route) - 1);
-  entry->route[sizeof(entry->route) - 1] = '\0';
-  entry->updated_ms = millis();
-  entry->used = true;
-}
-
 void formatAltitudeTag(const JsonObject& plane, char* out, size_t out_len) {
   out[0] = '\0';
   if (out_len == 0) {
@@ -313,7 +192,13 @@ void formatAltitudeTag(const JsonObject& plane, char* out, size_t out_len) {
   float alt = 0.0f;
   if (readJsonFloat(plane, "alt_baro", &alt) ||
       readJsonFloat(plane, "alt_geom", &alt)) {
-    snprintf(out, out_len, "%d ft", static_cast<int>(lroundf(alt)));
+    constexpr float kTrendThresholdFpm = 200.0f;
+    const float rate = pickVerticalRate(plane);
+    const char* trend = rate > kTrendThresholdFpm
+                            ? "^"
+                            : (rate < -kTrendThresholdFpm ? "v" : "");
+    snprintf(out, out_len, "%s%d ft", trend,
+             static_cast<int>(lroundf(alt)));
   }
 }
 
@@ -335,12 +220,6 @@ void fillTagFields(Aircraft* ac, const JsonObject& plane) {
   }
 
   copyJsonStringTrimmed(plane, "t", ac->type, sizeof(ac->type));
-  ac->route[0] = '\0';
-  RouteCacheEntry* cached = findFreshRoute(ac->callsign);
-  if (cached != nullptr) {
-    strncpy(ac->route, cached->route, sizeof(ac->route) - 1);
-    ac->route[sizeof(ac->route) - 1] = '\0';
-  }
   formatAltitudeTag(plane, ac->alt, sizeof(ac->alt));
   formatGroundSpeedTag(plane, ac->speed, sizeof(ac->speed));
 }
@@ -418,6 +297,7 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
     s_aircraft[n].nose_deg = pickNoseHeading(plane);
     s_aircraft[n].track_deg = pickTrackHeading(plane);
     s_aircraft[n].gs_knots = pickGroundSpeed(plane);
+    s_aircraft[n].military = isMilitary(plane);
     fillTagFields(&s_aircraft[n], plane);
     ++n;
   }
@@ -425,53 +305,6 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   s_aircraft_count = n;
   Serial.printf("adsb: %u aircraft\n", static_cast<unsigned>(n));
   return true;
-}
-
-bool fetchPendingRoute() {
-  Aircraft* aircraft = nullptr;
-  for (size_t i = 0; i < s_aircraft_count; ++i) {
-    if (s_aircraft[i].callsign[0] != '\0' &&
-        findFreshRoute(s_aircraft[i].callsign) == nullptr) {
-      aircraft = &s_aircraft[i];
-      break;
-    }
-  }
-  if (aircraft == nullptr) {
-    return false;
-  }
-
-  String url = kRouteApiBase;
-  url += aircraft->callsign;
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  char route[sizeof(aircraft->route)];
-  char origin_icao[5];
-  char destination_icao[5];
-  route[0] = '\0';
-  origin_icao[0] = '\0';
-  destination_icao[0] = '\0';
-  if (http.begin(client, url)) {
-    http.setTimeout(4000);
-    if (http.GET() == HTTP_CODE_OK) {
-      parseRoute(http.getString(), aircraft->callsign, route, sizeof(route),
-                 origin_icao, sizeof(origin_icao), destination_icao,
-                 sizeof(destination_icao));
-    }
-    http.end();
-  }
-  if (route[0] != '\0' && destination_icao[0] != '\0' &&
-      !routeHeadsTowardDestination(*aircraft, destination_icao)) {
-    Serial.printf("route: rejected implausible %s -> %s\n",
-                  aircraft->callsign, route);
-    route[0] = '\0';
-  }
-  storeRoute(aircraft->callsign, route);
-  strncpy(aircraft->route, route, sizeof(aircraft->route) - 1);
-  aircraft->route[sizeof(aircraft->route) - 1] = '\0';
-  Serial.printf("route: %s -> %s\n", aircraft->callsign,
-                route[0] != '\0' ? route : "(unavailable)");
-  return route[0] != '\0';
 }
 
 }  // namespace services::adsb

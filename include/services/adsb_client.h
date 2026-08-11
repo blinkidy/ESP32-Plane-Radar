@@ -10,10 +10,9 @@ struct Aircraft {
   float nose_deg;
   float track_deg;
   float gs_knots;
+  bool military;
   char callsign[9];
   char type[5];
-  /** Origin-destination airport codes, e.g. "LAX-PHX". */
-  char route[12];
   char alt[12];
   char speed[12];
 };
@@ -29,8 +28,5 @@ void setPollFn(PollFn fn);
 
 /** Fetch aircraft within fetch_radius_km of center_lat/lon from adsb.fi. */
 bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km);
-
-/** Resolve at most one uncached route. Call after drawing a position update. */
-bool fetchPendingRoute();
 
 }  // namespace services::adsb
