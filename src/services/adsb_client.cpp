@@ -24,9 +24,11 @@ size_t s_aircraft_count = 0;
 PollFn s_poll_fn = nullptr;
 
 constexpr size_t kRouteCacheSize = 48;
+constexpr unsigned long kRouteCacheTtlMs = 5UL * 60UL * 1000UL;
 struct RouteCacheEntry {
   char callsign[9];
   char route[12];
+  unsigned long updated_ms;
   bool used;
 };
 RouteCacheEntry s_route_cache[kRouteCacheSize];
@@ -169,7 +171,7 @@ void copyJsonStringTrimmed(const JsonObject& obj, const char* key, char* out,
   out[n] = '\0';
 }
 
-RouteCacheEntry* findRoute(const char* callsign) {
+RouteCacheEntry* findRouteEntry(const char* callsign) {
   for (size_t i = 0; i < kRouteCacheSize; ++i) {
     if (s_route_cache[i].used &&
         strcmp(s_route_cache[i].callsign, callsign) == 0) {
@@ -177,6 +179,14 @@ RouteCacheEntry* findRoute(const char* callsign) {
     }
   }
   return nullptr;
+}
+
+RouteCacheEntry* findFreshRoute(const char* callsign) {
+  RouteCacheEntry* entry = findRouteEntry(callsign);
+  if (entry == nullptr || millis() - entry->updated_ms >= kRouteCacheTtlMs) {
+    return nullptr;
+  }
+  return entry;
 }
 
 const char* airportCode(JsonObjectConst airport) {
@@ -195,7 +205,8 @@ const char* airportCode(JsonObjectConst airport) {
   return nullptr;
 }
 
-void parseRoute(const String& payload, char* out, size_t out_len) {
+void parseRoute(const String& payload, const char* requested_callsign,
+                char* out, size_t out_len) {
   out[0] = '\0';
   JsonDocument doc;
   if (deserializeJson(doc, payload) != DeserializationError::Ok) {
@@ -203,6 +214,11 @@ void parseRoute(const String& payload, char* out, size_t out_len) {
   }
   JsonObjectConst route =
       doc["response"]["flightroute"].as<JsonObjectConst>();
+  const char* response_callsign = route["callsign"].as<const char*>();
+  if (response_callsign == nullptr ||
+      strcmp(response_callsign, requested_callsign) != 0) {
+    return;
+  }
   const char* origin =
       airportCode(route["origin"].as<JsonObjectConst>());
   const char* destination =
@@ -213,7 +229,7 @@ void parseRoute(const String& payload, char* out, size_t out_len) {
 }
 
 void storeRoute(const char* callsign, const char* route) {
-  RouteCacheEntry* entry = findRoute(callsign);
+  RouteCacheEntry* entry = findRouteEntry(callsign);
   if (entry == nullptr) {
     entry = &s_route_cache[s_route_replace_index];
     s_route_replace_index = (s_route_replace_index + 1) % kRouteCacheSize;
@@ -222,6 +238,7 @@ void storeRoute(const char* callsign, const char* route) {
   entry->callsign[sizeof(entry->callsign) - 1] = '\0';
   strncpy(entry->route, route, sizeof(entry->route) - 1);
   entry->route[sizeof(entry->route) - 1] = '\0';
+  entry->updated_ms = millis();
   entry->used = true;
 }
 
@@ -266,7 +283,7 @@ void fillTagFields(Aircraft* ac, const JsonObject& plane) {
 
   copyJsonStringTrimmed(plane, "t", ac->type, sizeof(ac->type));
   ac->route[0] = '\0';
-  RouteCacheEntry* cached = findRoute(ac->callsign);
+  RouteCacheEntry* cached = findFreshRoute(ac->callsign);
   if (cached != nullptr) {
     strncpy(ac->route, cached->route, sizeof(ac->route) - 1);
     ac->route[sizeof(ac->route) - 1] = '\0';
@@ -361,7 +378,7 @@ bool fetchPendingRoute() {
   Aircraft* aircraft = nullptr;
   for (size_t i = 0; i < s_aircraft_count; ++i) {
     if (s_aircraft[i].callsign[0] != '\0' &&
-        findRoute(s_aircraft[i].callsign) == nullptr) {
+        findFreshRoute(s_aircraft[i].callsign) == nullptr) {
       aircraft = &s_aircraft[i];
       break;
     }
@@ -380,13 +397,15 @@ bool fetchPendingRoute() {
   if (http.begin(client, url)) {
     http.setTimeout(4000);
     if (http.GET() == HTTP_CODE_OK) {
-      parseRoute(http.getString(), route, sizeof(route));
+      parseRoute(http.getString(), aircraft->callsign, route, sizeof(route));
     }
     http.end();
   }
   storeRoute(aircraft->callsign, route);
   strncpy(aircraft->route, route, sizeof(aircraft->route) - 1);
   aircraft->route[sizeof(aircraft->route) - 1] = '\0';
+  Serial.printf("route: %s -> %s\n", aircraft->callsign,
+                route[0] != '\0' ? route : "(unavailable)");
   return route[0] != '\0';
 }
 
