@@ -469,6 +469,38 @@ TagPlacement makeTagPlacement(int left, int top, int block_w, int block_h,
                               bool align_left) {
   left = std::max(1, std::min(left, radar::kSize - block_w - 1));
   top = std::max(1, std::min(top, radar::kSize - block_h - 1));
+
+  // A rectangle can be inside the 240x240 framebuffer while its corners are
+  // still clipped by the physical round panel. Walk the tag toward the center
+  // until all four corners are within the visible disc.
+  const int visible_r = radar::kSize / 2 - radar::kAircraftTagScreenMarginPx;
+  const int visible_r_sq = visible_r * visible_r;
+  const auto corner_inside = [&](int x, int y) {
+    const int dx = x - radar::kCenterX;
+    const int dy = y - radar::kCenterY;
+    return dx * dx + dy * dy <= visible_r_sq;
+  };
+  const auto fits_round_screen = [&]() {
+    const int right = left + block_w - 1;
+    const int bottom = top + block_h - 1;
+    return corner_inside(left, top) && corner_inside(right, top) &&
+           corner_inside(left, bottom) && corner_inside(right, bottom);
+  };
+  for (int step = 0; step < radar::kSize && !fits_round_screen(); ++step) {
+    const int center_x_twice = left * 2 + block_w;
+    const int center_y_twice = top * 2 + block_h;
+    if (center_x_twice < radar::kCenterX * 2) {
+      ++left;
+    } else if (center_x_twice > radar::kCenterX * 2) {
+      --left;
+    }
+    if (center_y_twice < radar::kCenterY * 2) {
+      ++top;
+    } else if (center_y_twice > radar::kCenterY * 2) {
+      --top;
+    }
+  }
+
   return {align_left ? left : left + block_w, top, left, left + block_w,
           top + block_h, align_left};
 }

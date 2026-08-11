@@ -64,6 +64,8 @@ constexpr int kBeyondRingScreenMarginPx = 2;
 constexpr int kAircraftTagLabelHeightPx = 13;
 /** Treat labels this close as touching, then rotate that overlapping group. */
 constexpr int kAircraftTagCollisionGapPx = 2;
+/** Keep every corner of an aircraft tag inside the round panel. */
+constexpr int kAircraftTagScreenMarginPx = 2;
 /** Overlapping groups advance to the next aircraft details at this rate. */
 constexpr unsigned long kAircraftTagPagePeriodMs = 10000UL;
 
