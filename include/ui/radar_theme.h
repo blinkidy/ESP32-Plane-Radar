@@ -68,6 +68,8 @@ constexpr int kAircraftTagCollisionGapPx = 2;
 constexpr int kAircraftTagScreenMarginPx = 2;
 /** Overlapping groups advance to the next aircraft details at this rate. */
 constexpr unsigned long kAircraftTagPagePeriodMs = 10000UL;
+/** Blink rate for the aircraft whose tag is selected in a collision set. */
+constexpr unsigned long kAircraftTagPulsePeriodMs = 3000UL;
 
 /** RGB565 palette targets (applied in initPalette). */
 constexpr uint8_t kBgR = 4;

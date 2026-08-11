@@ -441,6 +441,11 @@ struct TagPlacement {
   bool tag_on_right;
 };
 
+bool tagPlacementsTouch(const TagPlacement& a, const TagPlacement& b);
+
+constexpr int kRunwayTagOverlapPenalty = 10000;
+constexpr int kOtherTagOverlapPenalty = 1000000;
+
 int tagPlacementInkScore(const TagPlacement& placement) {
   // The physical panel has no MISO connection, so reading it cannot provide a
   // useful occupancy map and would turn every sample into a slow SPI
@@ -506,7 +511,9 @@ TagPlacement makeTagPlacement(int left, int top, int block_w, int block_h,
 }
 
 TagPlacement placeAircraftTag(int x, int y,
-                              const services::adsb::Aircraft& plane) {
+                              const services::adsb::Aircraft& plane,
+                              const TagPlacement* placed,
+                              size_t placed_count) {
   initTagLabelMetrics();
   applyTagStyle();
 
@@ -540,10 +547,20 @@ TagPlacement placeAircraftTag(int x, int y,
   add_candidate(x - gap - block_w, y + gap, false);
 
   size_t best = 0;
-  int best_score = tagPlacementInkScore(candidates[0]);
-  for (size_t i = 1; i < candidate_count; ++i) {
-    const int score = tagPlacementInkScore(candidates[i]);
-    if (score < best_score) {
+  int best_score = 0;
+  for (size_t i = 0; i < candidate_count; ++i) {
+    int score = tagPlacementInkScore(candidates[i]);
+    if (runway::tagRectOverlapsRunway(candidates[i].left, candidates[i].top,
+                                      candidates[i].right,
+                                      candidates[i].bottom)) {
+      score += kRunwayTagOverlapPenalty;
+    }
+    for (size_t p = 0; p < placed_count; ++p) {
+      if (tagPlacementsTouch(candidates[i], placed[p])) {
+        score += kOtherTagOverlapPenalty;
+      }
+    }
+    if (i == 0 || score < best_score) {
       best = i;
       best_score = score;
     }
@@ -712,30 +729,73 @@ void drawAircraft() {
   }
 
   TagPlacement placements[services::adsb::kMaxAircraft];
-  size_t parents[services::adsb::kMaxAircraft];
-  size_t group_sizes[services::adsb::kMaxAircraft] = {};
-  size_t group_seen[services::adsb::kMaxAircraft] = {};
   for (size_t d = 0; d < draw_count; ++d) {
     const size_t i = items[d].index;
-    placements[d] = placeAircraftTag(items[d].x, items[d].y, planes[i]);
+    placements[d] = placeAircraftTag(items[d].x, items[d].y, planes[i],
+                                     placements, d);
+  }
+
+  bool collides[services::adsb::kMaxAircraft] = {};
+  size_t parents[services::adsb::kMaxAircraft];
+  for (size_t d = 0; d < draw_count; ++d) {
     parents[d] = d;
   }
   for (size_t a = 0; a < draw_count; ++a) {
     for (size_t b = a + 1; b < draw_count; ++b) {
       if (tagPlacementsTouch(placements[a], placements[b])) {
+        collides[a] = true;
+        collides[b] = true;
         joinTagGroups(parents, a, b);
       }
     }
   }
-  for (size_t d = 0; d < draw_count; ++d) {
-    ++group_sizes[tagGroupRoot(parents, d)];
-  }
 
   const size_t phase = millis() / radar::kAircraftTagPagePeriodMs;
+  bool visible[services::adsb::kMaxAircraft] = {};
+  // Page each collision component independently. Within a component, greedily
+  // show every compatible tag, so A and C can both be visible when only B
+  // overlaps them. A singleton component is therefore visible immediately.
+  for (size_t root_candidate = 0; root_candidate < draw_count;
+       ++root_candidate) {
+    if (tagGroupRoot(parents, root_candidate) != root_candidate) {
+      continue;
+    }
+    size_t members[services::adsb::kMaxAircraft];
+    size_t member_count = 0;
+    for (size_t d = 0; d < draw_count; ++d) {
+      if (tagGroupRoot(parents, d) == root_candidate) {
+        members[member_count++] = d;
+      }
+    }
+    for (size_t rank = 0; rank < member_count; ++rank) {
+      const size_t d = members[(phase + rank) % member_count];
+      bool blocked = false;
+      for (size_t prior = 0; prior < member_count; ++prior) {
+        const size_t other = members[prior];
+        if (visible[other] &&
+            tagPlacementsTouch(placements[d], placements[other])) {
+          blocked = true;
+          break;
+        }
+      }
+      if (!blocked) {
+        visible[d] = true;
+      }
+    }
+  }
+
+  const bool pulse_on =
+      (millis() / radar::kAircraftTagPulsePeriodMs) % 2 == 0;
   for (size_t d = 0; d < draw_count; ++d) {
-    const size_t root = tagGroupRoot(parents, d);
-    const size_t member = group_seen[root]++;
-    if (member != phase % group_sizes[root]) {
+    if (visible[d] && collides[d] && pulse_on) {
+      const size_t i = items[d].index;
+      drawHeadingTriangle(items[d].x, items[d].y, planes[i].nose_deg,
+                          radar::kColorLabel);
+    }
+  }
+
+  for (size_t d = 0; d < draw_count; ++d) {
+    if (!visible[d]) {
       continue;
     }
     const size_t i = items[d].index;

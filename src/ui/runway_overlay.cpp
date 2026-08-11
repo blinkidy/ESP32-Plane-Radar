@@ -1,5 +1,6 @@
 #include "ui/runway_overlay.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 
@@ -13,6 +14,15 @@ namespace {
 
 constexpr float kKmPerDeg = 111.0f;
 bool s_in_range[data::large_airports::kAirportCount];
+struct ScreenRunway {
+  int x0;
+  int y0;
+  int x1;
+  int y1;
+};
+constexpr size_t kMaxScreenRunways = 128;
+ScreenRunway s_screen_runways[kMaxScreenRunways];
+size_t s_screen_runway_count = 0;
 
 float e7ToDeg(int32_t e7) { return static_cast<float>(e7) * 1e-7f; }
 
@@ -125,12 +135,16 @@ bool drawRunwayLine(lgfx::LGFXBase& gfx, const data::large_airports::Runway& rw)
 
   gfx.drawWideLine(x0, y0, x1, y1, radar::kRunwayLineHalfWidth,
                    radar::kColorRunway);
+  if (s_screen_runway_count < kMaxScreenRunways) {
+    s_screen_runways[s_screen_runway_count++] = {x0, y0, x1, y1};
+  }
   return true;
 }
 
 }  // namespace
 
 void drawLargeAirportRunways(lgfx::LGFXBase& gfx) {
+  s_screen_runway_count = 0;
   if (!radar::showRunways()) {
     return;
   }
@@ -157,6 +171,29 @@ void drawLargeAirportRunways(lgfx::LGFXBase& gfx) {
     }
     drawRunwayLine(gfx, rw);
   }
+}
+
+bool tagRectOverlapsRunway(int left, int top, int right, int bottom) {
+  const int pad = static_cast<int>(ceilf(radar::kRunwayLineHalfWidth));
+  left -= pad;
+  top -= pad;
+  right += pad;
+  bottom += pad;
+  for (size_t i = 0; i < s_screen_runway_count; ++i) {
+    const ScreenRunway& runway = s_screen_runways[i];
+    const int dx = runway.x1 - runway.x0;
+    const int dy = runway.y1 - runway.y0;
+    const int steps = std::max(std::abs(dx), std::abs(dy));
+    for (int step = 0; step <= steps; ++step) {
+      const float t = steps == 0 ? 0.0f : static_cast<float>(step) / steps;
+      const int x = runway.x0 + static_cast<int>(lroundf(dx * t));
+      const int y = runway.y0 + static_cast<int>(lroundf(dy * t));
+      if (x >= left && x <= right && y >= top && y <= bottom) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 }  // namespace ui::runway
