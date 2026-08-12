@@ -92,7 +92,10 @@ Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
 - **Inside the outer ring** — red heading triangle, magenta speed vector
   (clipped at the ring), and callsign / type / altitude / ground-speed tags
 - **Outside the ring** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate past the ring)
-- **Tags** — placed toward the **center**: west (left) → tag on the **right** of the symbol; east (right) → tag on the **left**
+- **Tags** — placed toward the **center**: west (left) → tag on the **right** of
+  the symbol; east (right) → tag on the **left**. At the display edge, tags use
+  a tangential position and clip naturally so an inbound aircraft symbol enters
+  before its details without covering its history trail
 - **Altitude trend** — `^` climbing, `v` descending, and no marker when level
 - **Military aircraft** — orange aircraft symbol and callsign
 - **History trails** — up to six light-gray dots show each aircraft's recent
