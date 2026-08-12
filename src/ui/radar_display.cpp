@@ -538,6 +538,28 @@ TagPlacement makeTagPlacement(int left, int top, int block_w, int block_h,
           top + block_h, align_left};
 }
 
+float tagCenterDistanceForGap(float direction_x, float direction_y, int block_w,
+                              int block_h, int gap) {
+  // Find the center offset whose actual point-to-rectangle distance is `gap`.
+  // Adding the two projected half-extents overestimates this offset diagonally
+  // and can push a wide, multi-line tag beyond kAircraftTagMaxDistancePx.
+  const float half_w = block_w * 0.5f;
+  const float half_h = block_h * 0.5f;
+  float low = 0.0f;
+  float high = half_w + half_h + gap;
+  for (int step = 0; step < 16; ++step) {
+    const float mid = (low + high) * 0.5f;
+    const float dx = std::max(0.0f, fabsf(direction_x * mid) - half_w);
+    const float dy = std::max(0.0f, fabsf(direction_y * mid) - half_h);
+    if (dx * dx + dy * dy < gap * gap) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+  return high;
+}
+
 TagPlacement placeAircraftTag(int x, int y,
                               const services::adsb::Aircraft& plane,
                               const TagPlacement* placed,
@@ -573,9 +595,8 @@ TagPlacement placeAircraftTag(int x, int y,
                                                        radial_y * radial_y));
     const float tangent_x = -radial_y / radial_len;
     const float tangent_y = radial_x / radial_len;
-    const float tangent_distance =
-        gap + fabsf(tangent_x) * block_w * 0.5f +
-        fabsf(tangent_y) * block_h * 0.5f;
+    const float tangent_distance = tagCenterDistanceForGap(
+        tangent_x, tangent_y, block_w, block_h, gap);
     for (const float direction : {-1.0f, 1.0f}) {
       const int center_x =
           x + static_cast<int>(
