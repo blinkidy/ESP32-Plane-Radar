@@ -102,6 +102,9 @@ Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
   positions, making direction and relative speed apparent at a glance
 - **Crowded scopes** — all aircraft symbols and non-overlapping details remain
   visible; only details that touch are grouped and rotate every 10 s
+- **Freshness watchdog** — while Wi-Fi remains connected, the radar restarts if
+  no ADS-B request succeeds for two minutes; transient failures recover without
+  rebooting
 
 As range decreases (or aircraft approach), targets move inward; beyond-ring dots become full symbols when they cross the outer ring.
 
