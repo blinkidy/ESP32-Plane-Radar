@@ -31,6 +31,13 @@ void resetAdsbFreshnessCheck() {
 }
 
 void restartIfAdsbStale() {
+  // A fetch can outlive the Wi-Fi connection that started it. Let the outer
+  // loop record the disconnect and use the normal reconnect grace instead of
+  // rebooting from the failed request's return path.
+  if (WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
   const unsigned long freshness_ms =
       g_last_adsb_success_ms != 0 ? g_last_adsb_success_ms
                                  : g_adsb_fresh_since_ms;
