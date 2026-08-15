@@ -64,7 +64,7 @@ struct CachedTagChoice {
   char id[8] = {};
   uint8_t candidate = 0;
   bool valid = false;
-  bool allows_round_clip = false;
+  bool uses_edge_candidates = false;
 };
 CachedTagChoice s_tag_choices[services::adsb::kMaxAircraft];
 
@@ -494,6 +494,7 @@ struct TagPlacement {
 bool tagPlacementsTouch(const TagPlacement& a, const TagPlacement& b);
 
 constexpr int kRunwayTagOverlapPenalty = 10000;
+constexpr int kEdgeInwardTagPenalty = 1000;
 constexpr int kOtherTagOverlapPenalty = 1000000;
 constexpr int kDistantTagPenalty = 100000000;
 
@@ -514,8 +515,12 @@ int tagPlacementInkScore(const TagPlacement& placement) {
   // Runway and tag intersections are checked geometrically below, so a coarse
   // sample is enough for general grid/trail avoidance and substantially cuts
   // work on busy, zoomed-out scopes.
-  for (int y = placement.top; y < placement.bottom; y += 4) {
-    for (int x = placement.left; x < placement.right; x += 4) {
+  const int sample_top = std::max(0, placement.top);
+  const int sample_bottom = std::min(radar::kSize, placement.bottom);
+  const int sample_left = std::max(0, placement.left);
+  const int sample_right = std::min(radar::kSize, placement.right);
+  for (int y = sample_top; y < sample_bottom; y += 4) {
+    for (int x = sample_left; x < sample_right; x += 4) {
       if (s_draw->readPixel(x, y) != background) {
         ++score;
       }
@@ -525,45 +530,34 @@ int tagPlacementInkScore(const TagPlacement& placement) {
 }
 
 TagPlacement makeTagPlacement(int left, int top, int block_w, int block_h,
-                              bool align_left, bool keep_inside_round) {
-  left = std::max(1, std::min(left, radar::kSize - block_w - 1));
-  top = std::max(1, std::min(top, radar::kSize - block_h - 1));
-
-  // A rectangle can be inside the 240x240 framebuffer while its corners are
-  // clipped by the physical round panel. Normally walk it into the visible
-  // disc; outbound edge traffic may intentionally let its tag leave the circle.
-  if (keep_inside_round) {
-    const int visible_r = radar::kSize / 2 - radar::kAircraftTagScreenMarginPx;
-    const int visible_r_sq = visible_r * visible_r;
-    const auto corner_inside = [&](int x, int y) {
-      const int dx = x - radar::kCenterX;
-      const int dy = y - radar::kCenterY;
-      return dx * dx + dy * dy <= visible_r_sq;
-    };
-    const auto fits_round_screen = [&]() {
-      const int right = left + block_w - 1;
-      const int bottom = top + block_h - 1;
-      return corner_inside(left, top) && corner_inside(right, top) &&
-             corner_inside(left, bottom) && corner_inside(right, bottom);
-    };
-    for (int step = 0; step < radar::kSize && !fits_round_screen(); ++step) {
-      const int center_x_twice = left * 2 + block_w;
-      const int center_y_twice = top * 2 + block_h;
-      if (center_x_twice < radar::kCenterX * 2) {
-        ++left;
-      } else if (center_x_twice > radar::kCenterX * 2) {
-        --left;
-      }
-      if (center_y_twice < radar::kCenterY * 2) {
-        ++top;
-      } else if (center_y_twice > radar::kCenterY * 2) {
-        --top;
-      }
-    }
-  }
-
+                              bool align_left) {
+  // Do not pull tags into either the rectangular framebuffer or the round
+  // panel. Natural clipping lets an entering aircraft symbol lead its details
+  // onto the scope and lets an exiting aircraft pull its details off-screen.
   return {align_left ? left : left + block_w, top, left, left + block_w,
           top + block_h, align_left};
+}
+
+float tagCenterDistanceForGap(float direction_x, float direction_y, int block_w,
+                              int block_h, int gap) {
+  // Find the center offset whose actual point-to-rectangle distance is `gap`.
+  // Adding the two projected half-extents overestimates this offset diagonally
+  // and can push a wide, multi-line tag beyond kAircraftTagMaxDistancePx.
+  const float half_w = block_w * 0.5f;
+  const float half_h = block_h * 0.5f;
+  float low = 0.0f;
+  float high = half_w + half_h + gap;
+  for (int step = 0; step < 16; ++step) {
+    const float mid = (low + high) * 0.5f;
+    const float dx = std::max(0.0f, fabsf(direction_x * mid) - half_w);
+    const float dy = std::max(0.0f, fabsf(direction_y * mid) - half_h);
+    if (dx * dx + dy * dy < gap * gap) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+  return high;
 }
 
 TagPlacement placeAircraftTag(int x, int y,
@@ -580,26 +574,41 @@ TagPlacement placeAircraftTag(int x, int y,
   const int symbol_half =
       radar::kAircraftNoseLenPx + radar::kAircraftTailHalfPx;
   const int gap = symbol_half + radar::kAircraftLabelGapPx;
-  constexpr float kDegToRad = 0.01745329252f;
-  const float track_rad = plane.track_deg * kDegToRad;
-  const float screen_vx = sinf(track_rad);
-  const float screen_vy = -cosf(track_rad);
   const int radial_x = x - radar::kCenterX;
   const int radial_y = y - radar::kCenterY;
-  const int exit_threshold = radar::kGridOuterRadius * 3 / 4;
-  const bool leaving_range =
-      radial_x * radial_x + radial_y * radial_y >=
-          exit_threshold * exit_threshold &&
-      radial_x * screen_vx + radial_y * screen_vy > 0.0f;
+  const int edge_threshold = radar::kGridOuterRadius * 3 / 4;
+  const bool near_edge = radial_x * radial_x + radial_y * radial_y >=
+                         edge_threshold * edge_threshold;
 
-  // Try all nearby sides and corners. The first two retain the old preference
-  // for placing labels toward the center and therefore win equal-score ties.
-  TagPlacement candidates[12];
+  // Near the rim, try positions tangent to the circle before the usual
+  // center-facing choices. A tangential tag is clipped by the round panel as
+  // it enters, so the aircraft appears first, without putting its history
+  // trail directly underneath the details.
+  TagPlacement candidates[14];
   size_t candidate_count = 0;
   const auto add_candidate = [&](int left, int top, bool align_left) {
-    candidates[candidate_count++] = makeTagPlacement(
-        left, top, block_w, block_h, align_left, !leaving_range);
+    candidates[candidate_count++] =
+        makeTagPlacement(left, top, block_w, block_h, align_left);
   };
+  if (near_edge) {
+    const float radial_len = sqrtf(static_cast<float>(radial_x * radial_x +
+                                                       radial_y * radial_y));
+    const float tangent_x = -radial_y / radial_len;
+    const float tangent_y = radial_x / radial_len;
+    const float tangent_distance = tagCenterDistanceForGap(
+        tangent_x, tangent_y, block_w, block_h, gap);
+    for (const float direction : {-1.0f, 1.0f}) {
+      const int center_x =
+          x + static_cast<int>(
+                  lroundf(tangent_x * tangent_distance * direction));
+      const int center_y =
+          y + static_cast<int>(
+                  lroundf(tangent_y * tangent_distance * direction));
+      add_candidate(center_x - block_w / 2, center_y - block_h / 2,
+                    tangent_x * direction >= 0.0f);
+    }
+  }
+  // Preserve the normal preference for placing details toward the center.
   if (x < radar::kCenterX) {
     add_candidate(x + gap, y - block_h / 2, true);
     add_candidate(x - gap - block_w, y - block_h / 2, false);
@@ -659,7 +668,7 @@ TagPlacement placeAircraftTag(int x, int y,
 
   CachedTagChoice* cached = cachedTagChoice(plane.id);
   if (cached != nullptr && cached->valid &&
-      cached->allows_round_clip == leaving_range &&
+      cached->uses_edge_candidates == near_edge &&
       cached->candidate < candidate_count &&
       !hard_conflict(candidates[cached->candidate])) {
     return candidates[cached->candidate];
@@ -669,12 +678,11 @@ TagPlacement placeAircraftTag(int x, int y,
   int best_score = 0;
   for (size_t i = 0; i < candidate_count; ++i) {
     int score = tagPlacementInkScore(candidates[i]);
-    if (leaving_range) {
-      const int candidate_x = (candidates[i].left + candidates[i].right) / 2;
-      const int candidate_y = (candidates[i].top + candidates[i].bottom) / 2;
-      const int outwardness = (candidate_x - x) * radial_x +
-                              (candidate_y - y) * radial_y;
-      score -= outwardness / 10;
+    if (near_edge && i >= 2) {
+      // Prefer either tangential entry position unless it creates a genuine
+      // runway/tag/symbol conflict. This prevents a low-ink center-facing tag
+      // from becoming visible before the aircraft at the rim.
+      score += kEdgeInwardTagPenalty;
     }
     const int nearest_x =
         std::max(candidates[i].left, std::min(x, candidates[i].right));
@@ -718,7 +726,7 @@ TagPlacement placeAircraftTag(int x, int y,
   if (cached != nullptr) {
     cached->candidate = static_cast<uint8_t>(best);
     cached->valid = true;
-    cached->allows_round_clip = leaving_range;
+    cached->uses_edge_candidates = near_edge;
   }
   return candidates[best];
 }
